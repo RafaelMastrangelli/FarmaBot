@@ -1,0 +1,46 @@
+# IDE / editor
+.history/
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Secrets e configuracao local
+.env
+.env.*
+!.env.example
+*.local
+secrets/
+credentials.json
+
+# Dados pessoais de teste
+.test-phone
+
+# Dependencias e build
+node_modules/
+dist/
+build/
+.next/
+coverage/
+
+# Logs e temporarios
+*.log
+logs/
+tmp/
+temp/
+
+# SO
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Docker / volumes locais
+docker-data/
+*.pid
+
+# Backup do dashboard (contem .git interno — usar submodule)
+WebApp/Metric-Dashboard-Farmacia.zip
+
+# Arquivos compactados locais
+*.zip
+!WebApp/.gitkeep

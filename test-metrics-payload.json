@@ -1,0 +1,31 @@
+{
+  "totalMensagens": 5,
+  "totalSessoes": 1,
+  "totalPedidos": 1,
+  "receitaTotal": 45.9,
+  "transferenciasHumano": 0,
+  "taxaConversao": "100.0",
+  "ticketMedio": "45.90",
+  "geradoEm": "2026-06-26T20:00:00.000Z",
+  "ultimosEventos": [
+    {
+      "id": "EVT-test",
+      "timestamp": "2026-06-26T20:00:00.000Z",
+      "phone": "5511999999999",
+      "customerName": null,
+      "step": "PEDIDO_FINALIZADO",
+      "orderId": "PED-123",
+      "orderTotal": 45.9,
+      "event": "PEDIDO_CRIADO"
+    }
+  ],
+  "estatisticasDiarias": {
+    "2026-06-26": {
+      "mensagens": 5,
+      "sessoes": 1,
+      "pedidos": 1,
+      "receita": 45.9,
+      "transferencias": 0
+    }
+  }
+}

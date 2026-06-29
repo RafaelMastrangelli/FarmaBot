@@ -1,0 +1,674 @@
+{
+  "name": "FarmaBot - WhatsApp + Groq",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp-farmacia",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "234b805a-ad42-47f8-beeb-2b11570b68b7",
+      "name": "Webhook Z-API",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -1104,
+        112
+      ],
+      "webhookId": "ff97c462-4fd4-49ed-95d8-827f826b286f"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n webhook com responseMode=responseNode passa o request completo\n// O payload real do Z-API está em .body; fallback para raiz se já vier desempacotado\nconst raw = $input.first().json;\nconst body = raw.body || raw;\n\n// Ignora mensagens de grupos (bot é para atendimento individual)\nif (body.isGroup === true) {\n  return [];\n}\n\n// Ignora mensagens do próprio bot\nif (body.fromMe === true || body.fromMe === 'true') {\n  return [];\n}\n\n// Ignora eventos que não são mensagens recebidas\nif (body.type && body.type !== 'ReceivedCallback') {\n  return [];\n}\n\n// Para DMs: participantPhone é o remetente real; phone é o chatId (igual ao remetente em DMs)\nconst rawPhone = body.participantPhone\n  || body.phone\n  || body.from\n  || body.chatId\n  || body.sender\n  || (body.key && body.key.remoteJid)\n  || '';\n\nlet phone = String(rawPhone)\n  .replace('@c.us', '')\n  .replace('@s.whatsapp.net', '')\n  .replace('@g.us', '')\n  .replace('@lid', '')\n  .replace('+', '')\n  .trim();\n\n// Normaliza números brasileiros: garante o 9 dígito após DDD (55 + 2 dígitos DDD + 9 + 8 dígitos)\n// Ex: 551187654321 (sem 9) → 5511987654321 (com 9)\nif (/^55\\d{10}$/.test(phone)) {\n  // 55 + DDD (2) + número (8) = 12 dígitos → adiciona 9 após DDD\n  phone = '55' + phone.slice(2, 4) + '9' + phone.slice(4);\n}\n\nconst messageText = String(body.text?.message || body.body || body.message || '');\nconst messageType = String(body.type || 'ReceivedCallback');\nconst timestamp = new Date().toISOString();\n\nif (!phone || !messageText.trim()) {\n  return [];\n}\n\nreturn [{\n  json: {\n    phone,\n    messageText: messageText.trim(),\n    messageTextLower: messageText.trim().toLowerCase(),\n    messageType,\n    timestamp\n  }\n}];"
+      },
+      "id": "949083aa-fb0b-4f5b-afb2-6b2ca880f1e4",
+      "name": "Normaliza Mensagem",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -880,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Armazena sessões em Static Data do N8N (sem Redis!)\nconst staticData = $getWorkflowStaticData('global');\nif (!staticData.sessions) staticData.sessions = {};\n\nconst data = $input.first().json;\n\n// Modo debug: apenas passa os dados para frente sem salvar sessão\nif (data._debugMode) {\n  return [{ json: data }];\n}\n\nconst phone = data.phone;\nconst messageData = data;\n\nlet session = staticData.sessions[phone] || null;\nconst isNew = !session;\n\nif (!session) {\n  session = {\n    phone,\n    step: 'INICIO',\n    cartItems: [],\n    customerName: '',\n    currentCategory: null,\n    selectedProduct: null,\n    pendingProduct: null,\n    deliveryAddress: '',\n    paymentMethod: '',\n    orderTotal: 0,\n    orderId: null,\n    orderStatus: null,\n    messageCount: 0,\n    startedAt: messageData.timestamp,\n    lastInteraction: messageData.timestamp\n  };\n}\n\nsession.lastInteraction = messageData.timestamp;\nsession.messageCount = (session.messageCount || 0) + 1;\n\n// Salva de volta\nstaticData.sessions[phone] = session;\n\n// Limpa sessões antigas (+2h sem interação) para não acumular\nconst now = new Date();\nObject.keys(staticData.sessions).forEach(p => {\n  const s = staticData.sessions[p];\n  const diff = (now - new Date(s.lastInteraction)) / 1000 / 60;\n  if (diff > 120) delete staticData.sessions[p];\n});\n\nreturn [{\n  json: {\n    ...messageData,\n    session,\n    isNewSession: isNew\n  }\n}];"
+      },
+      "id": "4f4b8d94-b026-4d76-8be3-2297d0adbdf6",
+      "name": "Busca Sessão (Static Data)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -656,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Roteamento baseado no estado da sessão e conteúdo da mensagem\nconst data = $input.first().json;\n\n// Modo debug: pula toda lógica de rota\nif (data._debugMode) {\n  return [{ json: { ...data, route: 'debug_only' } }];\n}\n\nconst session = data.session;\nconst msg = data.messageTextLower;\n\n// Palavras-chave para falar com humano (qualquer etapa)\nconst wantsHuman = msg.includes('humano') || msg.includes('atendente') || msg.includes('pessoa') || msg.includes('falar com alguem') || msg.includes('ajuda humana');\n\n// Palavras-chave para resetar/voltar ao início\nconst wantsReset = msg === 'menu' || msg === 'inicio' || msg === 'início' || msg === 'voltar' || msg === '0';\n\nlet route = 'bot_logic'; // padrão\n\n// menu sempre sai da fila humana; nos demais estados, respeita exceções do fluxo\nif (wantsReset && (\n  session.step === 'AGUARDANDO_HUMANO' ||\n  (session.step !== 'INICIO' && session.step !== 'AGUARDANDO_NOME' && session.step !== 'DETALHES_PRODUTO' && session.step !== 'ESCOLHENDO_PRODUTO' && session.step !== 'ESCOLHENDO_CATEGORIA')\n)) {\n  route = 'reset_menu';\n} else if (session.step === 'AGUARDANDO_HUMANO') {\n  route = 'em_fila_humano';\n} else if (wantsHuman) {\n  route = 'transferir_humano';\n} else {\n  route = 'bot_logic';\n}\n\nreturn [{ json: { ...data, route } }];"
+      },
+      "id": "36f570b6-d5e0-4518-a7ae-c9718b935edb",
+      "name": "Decide Rota",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "dataType": "string",
+        "value1": "={{ $json.route }}",
+        "rules": {
+          "rules": [
+            {
+              "value2": "em_fila_humano"
+            },
+            {
+              "value2": "transferir_humano",
+              "output": 1
+            },
+            {
+              "value2": "reset_menu",
+              "output": 2
+            }
+          ]
+        },
+        "fallbackOutput": 3
+      },
+      "id": "5fdcc3c7-4a34-42f1-92dc-4b7a5234ee40",
+      "name": "Switch de Rotas",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [
+        -224,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Lógica completa do bot - catálogo, carrinho e pedido\nconst staticData = $getWorkflowStaticData('global');\nconst data = $input.first().json;\nconst msg = data.messageTextLower;\nconst msgOriginal = data.messageText;\nlet session = { ...data.session };\nlet responseText = '';\nlet useAI = false;\nlet aiContext = '';\n\n// =============================================\n// CATÁLOGO DE PRODUTOS\n// =============================================\nconst CATALOGO = {\n  categorias: [\n    { id: '1', nome: 'Analgésicos e Antitérmicos', emoji: '💊' },\n    { id: '2', nome: 'Antibióticos (receita obrigatória)', emoji: '💉' },\n    { id: '3', nome: 'Vitaminas e Suplementos', emoji: '🌿' },\n    { id: '4', nome: 'Dermatológicos', emoji: '🧴' },\n    { id: '5', nome: 'Cardiovascular (receita obrigatória)', emoji: '❤️‍🩹' },\n    { id: '6', nome: 'Gastrintestinal', emoji: '🫁' }\n  ],\n  produtos: [\n    { id: 'P01', cat: '1', nome: 'Dipirona 500mg', desc: 'Caixa c/ 20 comprimidos', preco: 8.90, receita: false, estoque: true },\n    { id: 'P02', cat: '1', nome: 'Paracetamol 750mg', desc: 'Caixa c/ 20 comprimidos', preco: 6.50, receita: false, estoque: true },\n    { id: 'P03', cat: '1', nome: 'Ibuprofeno 600mg', desc: 'Caixa c/ 20 comprimidos', preco: 14.90, receita: false, estoque: true },\n    { id: 'P04', cat: '2', nome: 'Amoxicilina 500mg', desc: 'Caixa c/ 15 cápsulas', preco: 22.00, receita: true, estoque: true },\n    { id: 'P05', cat: '2', nome: 'Azitromicina 500mg', desc: 'Caixa c/ 3 comprimidos', preco: 18.50, receita: true, estoque: false },\n    { id: 'P06', cat: '3', nome: 'Vitamina C 1g', desc: 'Frasco c/ 30 efervescentes', preco: 24.90, receita: false, estoque: true },\n    { id: 'P07', cat: '3', nome: 'Vitamina D3 2000UI', desc: 'Frasco c/ 60 cápsulas', preco: 39.90, receita: false, estoque: true },\n    { id: 'P08', cat: '3', nome: 'Ômega 3 1000mg', desc: 'Frasco c/ 60 cápsulas', preco: 34.90, receita: false, estoque: true },\n    { id: 'P09', cat: '4', nome: 'Hidratante Corporal', desc: 'Frasco 200ml pele seca', preco: 19.90, receita: false, estoque: true },\n    { id: 'P10', cat: '4', nome: 'Protetor Solar FPS50', desc: 'Bisnaga 60g facial', preco: 42.00, receita: false, estoque: true },\n    { id: 'P11', cat: '5', nome: 'Enalapril 10mg', desc: 'Caixa c/ 30 comprimidos', preco: 12.00, receita: true, estoque: true },\n    { id: 'P12', cat: '5', nome: 'Losartana 50mg', desc: 'Caixa c/ 30 comprimidos', preco: 14.50, receita: true, estoque: true },\n    { id: 'P13', cat: '6', nome: 'Omeprazol 20mg', desc: 'Caixa c/ 28 cápsulas', preco: 15.90, receita: false, estoque: true },\n    { id: 'P14', cat: '6', nome: 'Buscopan Composto', desc: 'Caixa c/ 20 drágeas', preco: 21.00, receita: false, estoque: true }\n  ]\n};\n\n// =============================================\n// FUNÇÕES DE MENSAGEM (usadas sem IA)\n// =============================================\nfunction menuBoasVindas() {\n  return `🏪 *Bem-vindo à FarmaBot!* 👋\\n\\nOlá! Sou seu assistente virtual. Estou aqui para te ajudar a encontrar medicamentos e produtos com rapidez e segurança.\\n\\n✅ *Atendimento 24h • 7 dias por semana*\\n\\nPara começarmos, qual é o seu nome?`;\n}\n\nfunction menuPrincipal(nome) {\n  return `Olá, *${nome}*! 😊 O que você precisa hoje?\\n\\n1️⃣  💊  Ver produtos e catálogo\\n2️⃣  📦  Acompanhar meu pedido\\n3️⃣  🛒  Ver meu carrinho\\n4️⃣  👤  Falar com atendente\\n\\n_Digite o número da opção desejada._`;\n}\n\nfunction menuCategorias() {\n  let txt = `💊 *Nosso Catálogo* — Escolha uma categoria:\\n\\n`;\n  CATALOGO.categorias.forEach(c => {\n    txt += `*${c.id}* ${c.emoji}  ${c.nome}\\n`;\n  });\n  txt += `\\n*0*  ← Voltar ao menu`;\n  return txt;\n}\n\nfunction listaProdutos(catId) {\n  const cat = CATALOGO.categorias.find(c => c.id === catId);\n  const prods = CATALOGO.produtos.filter(p => p.cat === catId);\n  let txt = `${cat.emoji} *${cat.nome}*\\n${'─'.repeat(28)}\\n\\n`;\n  prods.forEach((p, i) => {\n    const st = p.estoque ? '✅ em estoque' : '❌ sem estoque';\n    const rc = p.receita ? ' │ 📋 receita' : '';\n    txt += `*${i+1}.* ${p.nome}\\n    ${p.desc}\\n    💰 R$ ${p.preco.toFixed(2)}  │  ${st}${rc}\\n\\n`;\n  });\n  txt += `*0*  ← Voltar às categorias\\n\\nℹ️ *Dica:* Adicione *?* após o número para saber mais sobre o produto _(ex: *1?* para detalhes)_\\n\\n_📋 = Exige receita médica_`;\n  return txt;\n}\n\nfunction resumoCarrinho(cartItems) {\n  if (!cartItems || cartItems.length === 0) {\n    return `🛒 Seu carrinho está *vazio*.\\n\\nDigite *1* para ver nosso catálogo!`;\n  }\n  let txt = `🛒 *Seu Carrinho*\\n${'─'.repeat(28)}\\n\\n`;\n  let total = 0;\n  cartItems.forEach((item, i) => {\n    txt += `${i+1}. *${item.nome}*\\n   ${item.qtd}x R$ ${item.preco.toFixed(2)} = R$ ${item.subtotal.toFixed(2)}\\n`;\n    total += item.subtotal;\n  });\n  const frete = 5.90;\n  txt += `\\n${'─'.repeat(28)}\\n🚚 Frete: R$ ${frete.toFixed(2)}\\n💵 *Total: R$ ${(total + frete).toFixed(2)}*\\n\\n*1*  ✅ Finalizar pedido\\n*2*  🛍️ Continuar comprando\\n*3*  🗑️ Esvaziar carrinho`;\n  return txt;\n}\n\n// =============================================\n// MÁQUINA DE ESTADOS\n// =============================================\n\nswitch (session.step) {\n\n  // ---------- INÍCIO ----------\n  case 'INICIO':\n    session.step = 'AGUARDANDO_NOME';\n    useAI = false;\n    responseText = menuBoasVindas();\n    break;\n\n  // ---------- AGUARDANDO NOME ----------\n  case 'AGUARDANDO_NOME': {\n    const nome = msgOriginal.trim();\n    if (nome.length < 2) {\n      responseText = `❌ Por favor, digite seu *nome completo* para continuar.`;\n    } else {\n      session.customerName = nome;\n      session.step = 'MENU_PRINCIPAL';\n      useAI = true;\n      aiContext = `O cliente acabou de se identificar como \"${nome}\" e está acessando uma farmácia virtual via WhatsApp pela primeira vez. Dê as boas vindas de forma calorosa pelo nome, mencione brevemente que pode ajudar com medicamentos e produtos, e apresente as 4 opções do menu: 1-Ver produtos, 2-Acompanhar pedido, 3-Ver carrinho, 4-Falar com atendente. Use emojis e formatação WhatsApp (*negrito*). Seja simpático mas objetivo.`;\n    }\n    break;\n  }\n\n  // ---------- MENU PRINCIPAL ----------\n  case 'MENU_PRINCIPAL':\n    if (msg === '1' || msg.includes('produto') || msg.includes('catálogo') || msg.includes('catalogo') || msg.includes('comprar')) {\n      session.step = 'ESCOLHENDO_CATEGORIA';\n      responseText = menuCategorias();\n    } else if (msg === '2' || msg.includes('pedido') || msg.includes('acompanhar') || msg.includes('rastrear')) {\n      session.step = 'CONSULTA_PEDIDO';\n      responseText = `📦 *Consultar Pedido*\\n\\nInforme o *número do seu pedido*:\\n_(Exemplo: PED-1234567890)_`;\n    } else if (msg === '3' || msg.includes('carrinho')) {\n      session.step = 'REVISANDO_CARRINHO';\n      responseText = resumoCarrinho(session.cartItems);\n    } else if (msg === '4') {\n      // Vai para transferência — tratado no roteador, mas por segurança:\n      session.step = 'AGUARDANDO_HUMANO';\n      responseText = `👤 Transferindo para atendente...`;\n    } else {\n      // Mensagem livre → IA interpreta\n      useAI = true;\n      aiContext = `Você é atendente virtual de uma farmácia. O cliente \"${session.customerName || 'Cliente'}\" enviou: \"${msgOriginal}\". Responda de forma simpática e redirecione para uma dessas opções do menu: 1-Ver produtos, 2-Acompanhar pedido, 3-Ver carrinho, 4-Falar com atendente. Use emojis e *negrito* do WhatsApp.`;\n    }\n    break;\n\n  // ---------- ESCOLHENDO CATEGORIA ----------\n  case 'ESCOLHENDO_CATEGORIA':\n    if (msg === '0' || msg === 'voltar') {\n      session.step = 'MENU_PRINCIPAL';\n      responseText = menuPrincipal(session.customerName);\n    } else {\n      const cat = CATALOGO.categorias.find(c => c.id === msg.trim());\n      if (cat) {\n        session.step = 'ESCOLHENDO_PRODUTO';\n        session.currentCategory = cat.id;\n        responseText = listaProdutos(cat.id);\n      } else {\n        useAI = true;\n        aiContext = `Atendente de farmácia. O cliente digitou \"${msgOriginal}\" quando deveria escolher uma categoria de 1 a 6 ou 0 para voltar. Peça que escolha um número válido da lista de categorias. Seja breve e simpático. Use emojis.`;\n      }\n    }\n    break;\n\n  // ---------- ESCOLHENDO PRODUTO ----------\n  case 'ESCOLHENDO_PRODUTO': {\n    if (msg === '0' || msg === 'voltar') {\n      session.step = 'ESCOLHENDO_CATEGORIA';\n      responseText = menuCategorias();\n    } else {\n      const catProds = CATALOGO.produtos.filter(p => p.cat === session.currentCategory);\n\n      // Detecta \"número?\" para solicitar detalhes (ex: \"1?\")\n      const detailMatch = msg.trim().match(/^(\\d+)\\?$/);\n      const numStr = detailMatch ? detailMatch[1] : msg.trim();\n      const wantsDetails = !!detailMatch;\n\n      // Detecta perguntas livres sobre produtos\n      const wantsInfo = !detailMatch && (\n        msg.includes('explique') || msg.includes('explicar') ||\n        msg.includes('detalhe') || msg.includes('saber mais') ||\n        msg.includes('fale sobre') || msg.includes('o que é') ||\n        msg.includes('o que e') || msg.includes('quero saber') ||\n        msg.includes('me conta') || msg.includes('informação') ||\n        msg.includes('informacao') || msg.includes('para que serve') ||\n        msg.includes('pra que serve')\n      );\n\n      if (wantsInfo) {\n        // Tenta identificar produto pelo nome na mensagem\n        const matchedProd = catProds.find(p =>\n          msg.includes(p.nome.toLowerCase().split(' ')[0]) ||\n          msg.includes(p.nome.toLowerCase())\n        );\n        if (matchedProd) {\n          session.step = 'DETALHES_PRODUTO';\n          session.selectedProduct = matchedProd.id;\n          useAI = true;\n          aiContext = `Você é um farmacêutico virtual especialista. O cliente quer saber mais sobre \"${matchedProd.nome}\" (${matchedProd.desc}, R$ ${matchedProd.preco.toFixed(2)}). Explique de forma clara e didática: para que serve, como age no organismo, principais indicações, posologia habitual, possíveis contraindicações e efeitos colaterais mais comuns${matchedProd.receita ? ', e por que exige receita médica' : ''}. Use emojis e *negrito* do WhatsApp para organizar. Ao final, diga que pode responder mais dúvidas e ofereça: *SIM* para adicionar ao carrinho ou *0* para voltar.`;\n        } else {\n          useAI = true;\n          aiContext = `Atendente de farmácia. O cliente perguntou \"${msgOriginal}\" enquanto escolhia um produto. Diga que pode explicar sobre qualquer produto da lista — basta digitar o número seguido de *?* (ex: *1?*) para receber informações detalhadas. Seja simpático.`;\n        }\n        break;\n      }\n\n      const idx = parseInt(numStr) - 1;\n      const prod = catProds[idx];\n\n      if (prod && wantsDetails) {\n        // Usuário quer saber mais antes de comprar\n        session.step = 'DETALHES_PRODUTO';\n        session.selectedProduct = prod.id;\n        useAI = true;\n        aiContext = `Você é um farmacêutico virtual especialista. O cliente quer saber mais sobre \"${prod.nome}\" (${prod.desc}, R$ ${prod.preco.toFixed(2)}). Explique de forma clara e acessível: para que serve, como age no organismo, indicações, posologia habitual, contraindicações e efeitos colaterais mais comuns${prod.receita ? ', por que exige receita médica e cuidados especiais' : ''}. Seja didático, use emojis e *negrito* do WhatsApp. Ao final, informe que pode tirar mais dúvidas e ofereça: *SIM* para adicionar ao carrinho${!prod.estoque ? ' (obs: sem estoque no momento)' : ''} ou *0* para voltar à lista.`;\n      } else if (prod) {\n        if (!prod.estoque) {\n          useAI = true;\n          aiContext = `Atendente de farmácia. O produto \"${prod.nome}\" está sem estoque no momento. Informe isso ao cliente de forma empática, sugira verificar outros produtos da categoria ou voltar depois. Seja simpático. Use emojis do WhatsApp.`;\n        } else if (prod.receita) {\n          session.step = 'AGUARDANDO_RECEITA';\n          session.pendingProduct = prod.id;\n          useAI = true;\n          aiContext = `Atendente de farmácia. O cliente quer comprar \"${prod.nome}\" que exige receita médica. Explique que é um medicamento controlado, que é necessário enviar foto da receita médica válida para continuar, e peça para enviar a imagem. Seja profissional e acolhedor. Use emojis do WhatsApp e *negrito*.`;\n        } else {\n          session.step = 'CONFIRMANDO_QUANTIDADE';\n          session.selectedProduct = prod.id;\n          useAI = true;\n          aiContext = `Atendente de farmácia. O cliente escolheu o produto:\\n- Nome: ${prod.nome}\\n- Descrição: ${prod.desc}\\n- Preço: R$ ${prod.preco.toFixed(2)}\\n\\nApresente o produto de forma atraente com suas características e pergunte quantas unidades o cliente deseja. Use emojis do WhatsApp e *negrito* para destacar o nome e o preço.`;\n        }\n      } else {\n        useAI = true;\n        aiContext = `Atendente de farmácia. O cliente digitou \"${msgOriginal}\" e não reconheci um produto válido. Peça que escolha um número da lista, adicione *?* para saber mais sobre um produto (ex: *1?*), ou *0* para voltar às categorias. Seja breve.`;\n      }\n    }\n    break;\n  }\n\n  // ---------- DETALHES DO PRODUTO ----------\n  case 'DETALHES_PRODUTO': {\n    const prodD = CATALOGO.produtos.find(p => p.id === session.selectedProduct);\n    if (msg === '0' || msg === 'voltar') {\n      session.step = 'ESCOLHENDO_PRODUTO';\n      responseText = listaProdutos(session.currentCategory);\n    } else if (msg === 'sim' || msg === '1' || msg.includes('adicionar') || msg.includes('comprar') || msg.includes('quero') || msg.includes('carrinho') || msg.includes('sim quero')) {\n      if (!prodD.estoque) {\n        useAI = true;\n        aiContext = `Atendente de farmácia. O produto \"${prodD.nome}\" infelizmente está sem estoque. Informe de forma simpática e sugira outros produtos da categoria. Use emojis.`;\n      } else if (prodD.receita) {\n        session.step = 'AGUARDANDO_RECEITA';\n        session.pendingProduct = prodD.id;\n        session.selectedProduct = null;\n        useAI = true;\n        aiContext = `Atendente de farmácia. O cliente decidiu comprar \"${prodD.nome}\" que exige receita médica. Explique que é necessário enviar foto da receita para continuar. Seja profissional e acolhedor. Use emojis e *negrito*.`;\n      } else {\n        session.step = 'CONFIRMANDO_QUANTIDADE';\n        useAI = true;\n        aiContext = `Atendente de farmácia. O cliente decidiu comprar \"${prodD.nome}\" (R$ ${prodD.preco.toFixed(2)}) após ver os detalhes. Confirme a ótima escolha e pergunte quantas unidades deseja. Use emojis e *negrito*.`;\n      }\n    } else {\n      // Pergunta livre sobre o produto — a IA responde como farmacêutico especialista\n      useAI = true;\n      aiContext = `Você é um farmacêutico virtual especialista. O cliente está perguntando sobre o medicamento/produto \"${prodD.nome}\": \"${msgOriginal}\". Responda de forma precisa, clara e acessível para leigos. Use emojis e *negrito* do WhatsApp para organizar a resposta. Ao final, lembre que pode digitar *SIM* para adicionar ao carrinho ou *0* para voltar à lista.`;\n    }\n    break;\n  }\n\n  // ---------- AGUARDANDO RECEITA ----------\n  case 'AGUARDANDO_RECEITA':\n    if (data.messageType === 'image' || data.messageType === 'document') {\n      const prodR = CATALOGO.produtos.find(p => p.id === session.pendingProduct);\n      session.step = 'CONFIRMANDO_QUANTIDADE';\n      session.selectedProduct = session.pendingProduct;\n      session.pendingProduct = null;\n      useAI = true;\n      aiContext = `Atendente de farmácia. O cliente enviou a receita médica com sucesso. Confirme o recebimento, informe que o produto \"${prodR.nome}\" (R$ ${prodR.preco.toFixed(2)}) está disponível e pergunte a quantidade desejada. Seja simpático e use emojis.`;\n    } else {\n      useAI = true;\n      aiContext = `Atendente de farmácia. O cliente ainda precisa enviar a *foto da receita médica* para o produto controlado que deseja. Lembre-o de forma gentil que precisa enviar a imagem da receita (foto ou PDF). Diga que sem isso não é possível processar a compra. Use emojis.`;\n    }\n    break;\n\n  // ---------- CONFIRMANDO QUANTIDADE ----------\n  case 'CONFIRMANDO_QUANTIDADE': {\n    const qtd = parseInt(msg.trim());\n    const prodQ = CATALOGO.produtos.find(p => p.id === session.selectedProduct);\n    if (!isNaN(qtd) && qtd >= 1 && qtd <= 99) {\n      const item = {\n        productId: prodQ.id,\n        nome: prodQ.nome,\n        qtd,\n        preco: prodQ.preco,\n        subtotal: qtd * prodQ.preco\n      };\n      if (!session.cartItems) session.cartItems = [];\n      session.cartItems.push(item);\n      session.selectedProduct = null;\n      session.step = 'POS_ADICIONAR';\n      const totalCarrinho = session.cartItems.reduce((a, i) => a + i.subtotal, 0);\n      useAI = true;\n      aiContext = `Atendente de farmácia. O cliente acabou de adicionar ao carrinho:\\n- Produto: ${prodQ.nome}\\n- Quantidade: ${qtd}\\n- Subtotal: R$ ${item.subtotal.toFixed(2)}\\n- Total atual do carrinho: R$ ${totalCarrinho.toFixed(2)}\\n\\nConfirme o item adicionado e apresente as opções: 1-Continuar comprando, 2-Ver carrinho e finalizar, 3-Esvaziar carrinho. Seja animado e use emojis do WhatsApp.`;\n    } else {\n      useAI = true;\n      aiContext = `Atendente de farmácia. O cliente digitou \"${msgOriginal}\" quando deveria informar a quantidade (número entre 1 e 99). Peça de forma simpática que informe um número válido de unidades.`;\n    }\n    break;\n  }\n\n  // ---------- PÓS ADICIONAR ----------\n  case 'POS_ADICIONAR':\n    if (msg === '1' || msg.includes('continuar') || msg.includes('mais')) {\n      session.step = 'ESCOLHENDO_CATEGORIA';\n      responseText = menuCategorias();\n    } else if (msg === '2' || msg.includes('carrinho') || msg.includes('finalizar')) {\n      session.step = 'REVISANDO_CARRINHO';\n      responseText = resumoCarrinho(session.cartItems);\n    } else if (msg === '3' || msg.includes('esvaziar') || msg.includes('limpar')) {\n      session.cartItems = [];\n      session.step = 'MENU_PRINCIPAL';\n      useAI = true;\n      aiContext = `Atendente de farmácia. O carrinho do cliente \"${session.customerName}\" foi esvaziado. Confirme isso de forma simpática e apresente o menu principal com as opções 1-Ver produtos, 2-Pedidos, 3-Carrinho, 4-Atendente. Use emojis.`;\n    } else {\n      useAI = true;\n      aiContext = `Atendente de farmácia. O cliente adicionou um item ao carrinho e deve escolher: 1-Continuar comprando, 2-Ver carrinho, 3-Esvaziar carrinho. Ele digitou \"${msgOriginal}\". Peça que escolha uma das opções acima. Seja simpático.`;\n    }\n    break;\n\n  // ---------- REVISANDO CARRINHO ----------\n  case 'REVISANDO_CARRINHO':\n    if (msg === '1' || msg.includes('finalizar') || msg.includes('comprar')) {\n      session.step = 'AGUARDANDO_ENDERECO';\n      useAI = true;\n      aiContext = `Atendente de farmácia. O cliente vai finalizar o pedido. Peça o *endereço completo de entrega* (Rua, número, bairro, cidade) de forma simpática. Mencione que a entrega é feita em até 4 horas. Use emojis.`;\n    } else if (msg === '2' || msg.includes('continuar')) {\n      session.step = 'ESCOLHENDO_CATEGORIA';\n      responseText = menuCategorias();\n    } else if (msg === '3' || msg.includes('esvaziar')) {\n      session.cartItems = [];\n      session.step = 'MENU_PRINCIPAL';\n      responseText = menuPrincipal(session.customerName);\n    } else {\n      responseText = resumoCarrinho(session.cartItems);\n    }\n    break;\n\n  // ---------- AGUARDANDO ENDEREÇO ----------\n  case 'AGUARDANDO_ENDERECO':\n    if (msgOriginal.trim().length < 10) {\n      useAI = true;\n      aiContext = `Atendente de farmácia. O endereço informado pelo cliente parece incompleto (\"${msgOriginal}\"). Peça gentilmente que informe o endereço completo: Rua, número, bairro e cidade.`;\n    } else {\n      session.deliveryAddress = msgOriginal.trim();\n      session.step = 'ESCOLHENDO_PAGAMENTO';\n      const tot = session.cartItems.reduce((a, i) => a + i.subtotal, 0);\n      const totFinal = tot + 5.90;\n      useAI = true;\n      aiContext = `Atendente de farmácia. O cliente informou o endereço de entrega: \"${msgOriginal}\". Confirme o endereço e apresente as formas de pagamento disponíveis:\\n- 1: PIX (com 5% de desconto)\\n- 2: Cartão de Crédito\\n- 3: Cartão de Débito\\n- 4: Dinheiro na entrega\\n\\nO total do pedido (com frete R$ 5,90) é R$ ${totFinal.toFixed(2)}. Destaque que o PIX dá desconto. Use emojis e *negrito* do WhatsApp.`;\n    }\n    break;\n\n  // ---------- ESCOLHENDO PAGAMENTO ----------\n  case 'ESCOLHENDO_PAGAMENTO': {\n    const payMap = { '1': 'PIX', '2': 'Cartão de Crédito', '3': 'Cartão de Débito', '4': 'Dinheiro na entrega' };\n    const pay = payMap[msg.trim()];\n    if (!pay) {\n      useAI = true;\n      aiContext = `Atendente de farmácia. O cliente digitou \"${msgOriginal}\" quando deveria escolher a forma de pagamento: 1-PIX, 2-Crédito, 3-Débito, 4-Dinheiro. Peça gentilmente que escolha uma opção válida.`;\n    } else {\n      session.paymentMethod = pay;\n      const subtotal = session.cartItems.reduce((a, i) => a + i.subtotal, 0);\n      const frete = 5.90;\n      const desconto = pay === 'PIX' ? subtotal * 0.05 : 0;\n      const totalFinal = subtotal + frete - desconto;\n      session.orderTotal = totalFinal;\n      session.step = 'CONFIRMANDO_PEDIDO';\n      const listaItens = session.cartItems.map(i => `• ${i.nome} x${i.qtd} = R$ ${i.subtotal.toFixed(2)}`).join('\\n');\n      useAI = true;\n      aiContext = `Atendente de farmácia. Apresente o resumo final do pedido para confirmação:\\n\\nCliente: ${session.customerName}\\nEndereço: ${session.deliveryAddress}\\nPagamento: ${pay}\\n\\nItens:\\n${listaItens}\\n\\nFrete: R$ ${frete.toFixed(2)}${desconto > 0 ? `\\nDesconto PIX 5%: -R$ ${desconto.toFixed(2)}` : ''}\\nTotal final: R$ ${totalFinal.toFixed(2)}\\n\\nPeça confirmação com as opções: *1* para CONFIRMAR ou *2* para CANCELAR. Use emojis e *negrito* do WhatsApp. Seja entusiasmado.`;\n    }\n    break;\n  }\n\n  // ---------- CONFIRMANDO PEDIDO ----------\n  case 'CONFIRMANDO_PEDIDO':\n    if (msg === '1' || msg.includes('sim') || msg.includes('confirmar') || msg.includes('confirmo')) {\n      const orderId = 'PED-' + Date.now();\n      session.orderId = orderId;\n      session.orderStatus = 'CONFIRMADO';\n      session.orderConfirmedAt = new Date().toISOString();\n      session.step = 'PEDIDO_FINALIZADO';\n      const pixInfo = session.paymentMethod === 'PIX'\n        ? `\\n\\n💠 *Chave PIX para pagamento:*\\nfarmacia@exemplo.com\\nValor: R$ ${session.orderTotal.toFixed(2)}\\n\\n_Após confirmar o PIX, seu pedido entra em preparo automaticamente._`\n        : '';\n      useAI = true;\n      aiContext = `Atendente de farmácia. O pedido foi confirmado com sucesso! Número do pedido: ${orderId}. Forma de pagamento: ${session.paymentMethod}.${pixInfo}\\n\\nComemore com o cliente, confirme o número do pedido, informe que a entrega será em até 4 horas e que ele receberá atualizações por aqui. Seja caloroso e agradecido. Use muitos emojis festivos e *negrito*.`;\n    } else if (msg === '2' || msg.includes('não') || msg.includes('nao') || msg.includes('cancelar')) {\n      session.step = 'MENU_PRINCIPAL';\n      useAI = true;\n      aiContext = `Atendente de farmácia. O cliente cancelou a confirmação do pedido. Informe que o pedido foi cancelado, que os itens ainda estão no carrinho caso queira alterar algo, e apresente o menu principal: 1-Ver produtos, 2-Pedidos, 3-Carrinho, 4-Atendente. Seja compreensivo.`;\n    } else {\n      useAI = true;\n      aiContext = `Atendente de farmácia. O cliente precisa responder *1* para confirmar o pedido ou *2* para cancelar. Ele digitou \"${msgOriginal}\". Peça gentilmente que responda com 1 ou 2.`;\n    }\n    break;\n\n  // ---------- PEDIDO FINALIZADO ----------\n  case 'PEDIDO_FINALIZADO':\n    useAI = true;\n    aiContext = `Atendente de farmácia. O cliente já tem um pedido confirmado (${session.orderId}). Ele enviou: \"${msgOriginal}\". Informe o status do pedido e pergunte se pode ajudar com mais alguma coisa. Ofereça o menu principal se necessário. Seja simpático.`;\n    break;\n\n  // ---------- CONSULTA PEDIDO ----------\n  case 'CONSULTA_PEDIDO': {\n    const pid = msgOriginal.trim().toUpperCase();\n    if (pid.startsWith('PED-')) {\n      session.step = 'MENU_PRINCIPAL';\n      useAI = true;\n      aiContext = `Atendente de farmácia. O cliente consultou o pedido ${pid}. Informe que o pedido está *Em Preparo* e a previsão de entrega é hoje até as 18h. Pergunte se pode ajudar com mais alguma coisa. Use emojis.`;\n    } else {\n      useAI = true;\n      aiContext = `Atendente de farmácia. O cliente está consultando um pedido mas digitou \"${msgOriginal}\" que não parece ser um número de pedido válido (formato: PED-XXXXXXXXXX). Peça gentilmente que informe o número correto do pedido.`;\n    }\n    break;\n  }\n\n  default:\n    session.step = 'MENU_PRINCIPAL';\n    responseText = menuPrincipal(session.customerName || 'Cliente');\n}\n\n// Salva sessão atualizada\nif (!staticData.sessions) staticData.sessions = {};\nstaticData.sessions[data.phone] = session;\n\nreturn [{\n  json: {\n    ...data,\n    session,\n    responseText,\n    useAI,\n    aiContext\n  }\n}];"
+      },
+      "id": "ad8bdf0b-01ec-4c78-a7a4-7f421676e2e1",
+      "name": "Lógica do Bot",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Reset da sessão para o menu principal\nconst staticData = $getWorkflowStaticData('global');\nconst data = $input.first().json;\nif (!staticData.sessions) staticData.sessions = {};\n\nconst session = staticData.sessions[data.phone] || {};\nconst nome = session.customerName || 'Cliente';\n\nconst updatedSession = { ...session, step: 'MENU_PRINCIPAL' };\nstaticData.sessions[data.phone] = updatedSession;\n\nreturn [{\n  json: {\n    ...data,\n    session: updatedSession,\n    responseText: '',\n    useAI: true,\n    aiContext: `Atendente de farmácia virtual. O cliente \"${nome}\" voltou ao menu principal. Dê as boas vindas de volta e apresente as opções: 1-Ver produtos, 2-Acompanhar pedido, 3-Ver carrinho, 4-Falar com atendente. Use emojis e seja simpático.`\n  }\n}];"
+      },
+      "id": "e9af90b3-f3cc-46c2-8cf6-944d0a1357a1",
+      "name": "Reset Menu",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepara transferência para atendente humano\nconst staticData = $getWorkflowStaticData('global');\nconst data = $input.first().json;\nif (!staticData.sessions) staticData.sessions = {};\n\nconst session = staticData.sessions[data.phone] || {};\nconst updatedSession = {\n  ...session,\n  step: 'AGUARDANDO_HUMANO',\n  transferredAt: new Date().toISOString()\n};\nstaticData.sessions[data.phone] = updatedSession;\n\nconst nome = session.customerName || 'Cliente';\nconst cartValue = (session.cartItems || []).reduce((a, i) => a + i.subtotal, 0);\n\nconst alertaInterno = `🔔 *ATENDIMENTO HUMANO SOLICITADO*\\n\\n👤 Cliente: ${nome}\\n📱 WhatsApp: ${data.phone}\\n⏰ Horário: ${new Date().toLocaleString('pt-BR')}\\n💬 Mensagem: \"${data.messageText}\"\\n🛒 Carrinho: R$ ${cartValue.toFixed(2)} (${(session.cartItems||[]).length} item(s))\\n\\n_Acesse o painel para ver o histórico._`;\n\nreturn [{\n  json: {\n    ...data,\n    session: updatedSession,\n    responseText: '',\n    useAI: true,\n    aiContext: `Atendente virtual de farmácia. O cliente \"${nome}\" solicitou atendimento humano. Informe que a solicitação foi registrada, que um atendente humano vai responder em até 5 minutos, e peça que aguarde. Seja acolhedor e tranquilizador. Use emojis.`,\n    alertaInterno\n  }\n}];"
+      },
+      "id": "b3a3c748-79e8-4352-ba1d-2d67eafa4f91",
+      "name": "Transferir para Humano",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Cliente já está na fila, apenas mantém\nconst data = $input.first().json;\nreturn [{\n  json: {\n    ...data,\n    responseText: '',\n    useAI: true,\n    aiContext: `Atendente virtual de farmácia. O cliente já está na fila aguardando atendimento humano. Ele enviou: \"${data.messageText}\". Informe que um atendente humano vai responder em breve, que a mensagem foi registrada. Se ele quiser voltar ao atendimento automático pode digitar *menu*. Seja breve e tranquilizador.`\n  }\n}];"
+      },
+      "id": "8e9976c3-d5c4-47aa-a4df-95cd210162c3",
+      "name": "Em Fila Humano",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "dataType": "boolean",
+        "value1": "={{ $json.useAI }}",
+        "rules": {
+          "rules": [
+            {
+              "value2": true
+            }
+          ]
+        },
+        "fallbackOutput": 1
+      },
+      "id": "70ef38ed-a5b7-4c2f-8c75-164836b9bc69",
+      "name": "Usa IA ou Resposta Direta",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [
+        272,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.GROQ_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({ model: 'llama-3.3-70b-versatile', max_tokens: 400, temperature: 0.7, messages: [{ role: 'system', content: 'Você é um atendente virtual simpático, profissional e eficiente de uma farmácia online que atende via WhatsApp. Suas respostas devem ser claras, objetivas e bem formatadas para WhatsApp (use *negrito* com asteriscos, emojis relevantes e quebras de linha). Nunca use markdown com # ou **. Máximo de 300 caracteres por resposta quando possível. Sempre foque em ajudar o cliente a completar sua compra.' }, { role: 'user', content: $json.aiContext }] }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "99e1592f-3d90-48da-985a-7defab996498",
+      "name": "Groq - Gera Resposta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        480,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extrai o texto da resposta da Groq (formato compatível com OpenAI)\nconst aiResponse = $input.first().json;\nconst text = aiResponse.choices?.[0]?.message?.content || 'Desculpe, tive um problema. Tente novamente.';\n\n// Pega dados originais do fluxo (usa isExecuted para evitar erro quando nó não rodou)\nconst flowData = ($('Lógica do Bot').isExecuted ? $('Lógica do Bot').first().json : null)\n  || ($('Reset Menu').isExecuted ? $('Reset Menu').first().json : null)\n  || ($('Transferir para Humano').isExecuted ? $('Transferir para Humano').first().json : null)\n  || ($('Em Fila Humano').isExecuted ? $('Em Fila Humano').first().json : null)\n  || {};\n\nreturn [{\n  json: {\n    ...flowData,\n    finalMessage: text\n  }\n}];"
+      },
+      "id": "c19c1c03-3a21-4fda-b2d8-cfd7a321745f",
+      "name": "Extrai Resposta IA",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        704,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Passa resposta direta (sem IA)\nconst data = $input.first().json;\nreturn [{\n  json: {\n    ...data,\n    finalMessage: data.responseText\n  }\n}];"
+      },
+      "id": "ca3d9a95-950f-457e-95f0-9479123cf20c",
+      "name": "Passa Resposta Direta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        320
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "461d7bb2-dd03-48db-a0c9-95a039efea35",
+      "name": "Unifica Mensagem Final",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [
+        928,
+        208
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.z-api.io/instances/' + $env.ZAPI_INSTANCE_ID + '/token/' + $env.ZAPI_TOKEN + '/send-text' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Client-Token",
+              "value": "={{ $env.ZAPI_CLIENT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({ phone: $json.phone, message: $json.finalMessage }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "0b42d7e9-fa87-4dcb-969b-fb1d9faaa5a8",
+      "name": "Envia Mensagem Z-API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1152,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "dataType": "string",
+        "value1": "={{ $if($('Transferir para Humano').isExecuted, $('Transferir para Humano').first().json.alertaInterno, '') }}",
+        "rules": {
+          "rules": [
+            {
+              "operation": "notEqual"
+            }
+          ]
+        },
+        "fallbackOutput": 1
+      },
+      "id": "928cf8f0-d2fc-4956-ac49-5efd047b9bca",
+      "name": "Tem Alerta de Humano?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [
+        1360,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.z-api.io/instances/' + $env.ZAPI_INSTANCE_ID + '/token/' + $env.ZAPI_TOKEN + '/send-text' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Client-Token",
+              "value": "={{ $env.ZAPI_CLIENT_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ ({ phone: $env.ATTENDANT_PHONE, message: $if($('Transferir para Humano').isExecuted, $('Transferir para Humano').first().json.alertaInterno, '') }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "26ca57b5-fd3c-4ee7-ab55-dd026434d117",
+      "name": "Notifica Atendente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1584,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Coleta métricas em Static Data para o futuro WebApp\nconst staticData = $getWorkflowStaticData('global');\nif (!staticData.metrics) {\n  staticData.metrics = {\n    totalMensagens: 0,\n    totalSessoes: 0,\n    totalPedidos: 0,\n    receitaTotal: 0,\n    transferenciasHumano: 0,\n    ultimosEventos: [],\n    estatisticasDiarias: {}\n  };\n}\n\n// O input vem da resposta HTTP do Z-API (sem session/phone).\n// Recupera dados do fluxo e sessão atualizada no Static Data.\nconst flowData = ($('Busca Sessão (Static Data)').isExecuted ? $('Busca Sessão (Static Data)').first().json : null)\n  || ($('Normaliza Mensagem').isExecuted ? $('Normaliza Mensagem').first().json : null)\n  || {};\n\nconst phone = flowData.phone;\nconst session = (staticData.sessions && phone && staticData.sessions[phone])\n  ? staticData.sessions[phone]\n  : (flowData.session || {});\n\nconst data = { ...flowData, session };\nconst timestamp = new Date().toISOString();\nconst hoje = timestamp.split('T')[0];\n\n// Inicializa dia\nif (!staticData.metrics.estatisticasDiarias[hoje]) {\n  staticData.metrics.estatisticasDiarias[hoje] = {\n    mensagens: 0, sessoes: 0, pedidos: 0, receita: 0, transferencias: 0\n  };\n}\n\nstaticData.metrics.totalMensagens++;\nstaticData.metrics.estatisticasDiarias[hoje].mensagens++;\n\nif (data.isNewSession) {\n  staticData.metrics.totalSessoes++;\n  staticData.metrics.estatisticasDiarias[hoje].sessoes++;\n}\n\nconst pedidoJaRegistrado = session.orderId\n  && staticData.metrics.ultimosEventos.some(e => e.orderId === session.orderId && e.event === 'PEDIDO_CRIADO');\n\nconst temPedidoParaRegistrar = session.orderId && !pedidoJaRegistrado;\n\nif (temPedidoParaRegistrar) {\n  staticData.metrics.totalPedidos++;\n  staticData.metrics.receitaTotal += session.orderTotal || 0;\n  staticData.metrics.estatisticasDiarias[hoje].pedidos++;\n  staticData.metrics.estatisticasDiarias[hoje].receita += session.orderTotal || 0;\n}\n\nif (session.step === 'AGUARDANDO_HUMANO') {\n  staticData.metrics.transferenciasHumano++;\n  staticData.metrics.estatisticasDiarias[hoje].transferencias++;\n}\n\n// Evento para histórico (sem null — dashboard rejeita campos nulos)\nlet eventType = 'MENSAGEM';\nif (session.step === 'AGUARDANDO_HUMANO') {\n  eventType = 'TRANSFERENCIA_HUMANO';\n} else if (temPedidoParaRegistrar) {\n  eventType = 'PEDIDO_CRIADO';\n}\n\nconst evt = {\n  id: `EVT-${Date.now()}`,\n  timestamp,\n  phone: data.phone,\n  step: temPedidoParaRegistrar ? 'PEDIDO_FINALIZADO' : session.step,\n  event: eventType\n};\nif (session.customerName) evt.customerName = session.customerName;\nif (session.orderId) evt.orderId = session.orderId;\nif (session.orderTotal) evt.orderTotal = session.orderTotal;\nif (session.paymentMethod) evt.paymentMethod = session.paymentMethod;\nif (session.deliveryAddress) evt.deliveryAddress = session.deliveryAddress;\nif (eventType === 'PEDIDO_CRIADO' && session.cartItems?.length) {\n  evt.items = session.cartItems.map(i => ({\n    name: i.nome || i.name,\n    quantity: i.qty || i.quantity || 1,\n    price: i.preco || i.price,\n    subtotal: i.subtotal\n  }));\n}\nstaticData.metrics.ultimosEventos.unshift(evt);\n\n// Mantém apenas últimos 200 eventos\nif (staticData.metrics.ultimosEventos.length > 200) {\n  staticData.metrics.ultimosEventos = staticData.metrics.ultimosEventos.slice(0, 200);\n}\n\n// Calcula taxa de conversão\nconst taxa = staticData.metrics.totalSessoes > 0\n  ? ((staticData.metrics.totalPedidos / staticData.metrics.totalSessoes) * 100).toFixed(1)\n  : '0.0';\n\nconst metricsPayload = {\n  ...staticData.metrics,\n  taxaConversao: taxa,\n  ticketMedio: staticData.metrics.totalPedidos > 0\n    ? (staticData.metrics.receitaTotal / staticData.metrics.totalPedidos).toFixed(2)\n    : '0.00',\n  geradoEm: timestamp\n};\n\nreturn [{\n  json: {\n    ...data,\n    metricsPayload,\n    metricsJson: JSON.stringify(metricsPayload, null, 2)\n  }\n}];"
+      },
+      "id": "f0631aa6-e5e2-47a2-aae4-9aabd1792ff3",
+      "name": "Coleta Métricas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1584,
+        352
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "6de33169-b9bd-481f-bb74-47c6f332423e",
+      "name": "Junta Fluxos",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [
+        1808,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Métricas salvas em Static Data (writeBinaryFile removido em versões novas do n8n)\nconst staticData = $getWorkflowStaticData('global');\nstaticData.lastMetricsJson = $input.first().json.metricsJson;\nreturn $input.all();"
+      },
+      "id": "5f9575cc-826a-4da2-9929-dc50ebe7934f",
+      "name": "Salva metrics.json",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2032,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:5000/api/metrics",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.DASHBOARD_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.metricsPayload }}",
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "d232a8de-0493-4a9b-89ff-e8bd99bf76be",
+      "name": "Envia ao WebApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        2032,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"ok\" }",
+        "options": {}
+      },
+      "id": "e85561ac-bde0-40df-b3c5-047810322ac4",
+      "name": "Responde 200 OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1152,
+        400
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook Z-API": {
+      "main": [
+        [
+          {
+            "node": "Normaliza Mensagem",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normaliza Mensagem": {
+      "main": [
+        [
+          {
+            "node": "Busca Sessão (Static Data)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Busca Sessão (Static Data)": {
+      "main": [
+        [
+          {
+            "node": "Decide Rota",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decide Rota": {
+      "main": [
+        [
+          {
+            "node": "Switch de Rotas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch de Rotas": {
+      "main": [
+        [
+          {
+            "node": "Em Fila Humano",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Transferir para Humano",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reset Menu",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Lógica do Bot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lógica do Bot": {
+      "main": [
+        [
+          {
+            "node": "Usa IA ou Resposta Direta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reset Menu": {
+      "main": [
+        [
+          {
+            "node": "Usa IA ou Resposta Direta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transferir para Humano": {
+      "main": [
+        [
+          {
+            "node": "Usa IA ou Resposta Direta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Em Fila Humano": {
+      "main": [
+        [
+          {
+            "node": "Usa IA ou Resposta Direta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Usa IA ou Resposta Direta": {
+      "main": [
+        [
+          {
+            "node": "Groq - Gera Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Passa Resposta Direta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq - Gera Resposta": {
+      "main": [
+        [
+          {
+            "node": "Extrai Resposta IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extrai Resposta IA": {
+      "main": [
+        [
+          {
+            "node": "Unifica Mensagem Final",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Passa Resposta Direta": {
+      "main": [
+        [
+          {
+            "node": "Unifica Mensagem Final",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Unifica Mensagem Final": {
+      "main": [
+        [
+          {
+            "node": "Envia Mensagem Z-API",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Responde 200 OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Envia Mensagem Z-API": {
+      "main": [
+        [
+          {
+            "node": "Tem Alerta de Humano?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tem Alerta de Humano?": {
+      "main": [
+        [
+          {
+            "node": "Notifica Atendente",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Coleta Métricas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notifica Atendente": {
+      "main": [
+        [
+          {
+            "node": "Junta Fluxos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Coleta Métricas": {
+      "main": [
+        [
+          {
+            "node": "Junta Fluxos",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Junta Fluxos": {
+      "main": [
+        [
+          {
+            "node": "Salva metrics.json",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Envia ao WebApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "ac2d2edf-ccf4-4ec6-9dad-86f6dbd5518a",
+  "meta": {
+    "instanceId": "CONFIGURE_AFTER_IMPORT"
+  },
+  "id": "hs8QcFbTtPjmklu5",
+  "tags": []
+}

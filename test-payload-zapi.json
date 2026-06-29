@@ -1,0 +1,9 @@
+{
+  "type": "ReceivedCallback",
+  "isGroup": false,
+  "fromMe": false,
+  "phone": "5511999999999",
+  "text": {
+    "message": "1"
+  }
+}
