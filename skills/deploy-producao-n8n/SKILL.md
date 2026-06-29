@@ -10,7 +10,7 @@ description: Preparar e realizar deploy do FarmaBot para producao. Usar quando p
 | Aspecto | Atual (Dev) | Producao (Meta) |
 |---|---|---|
 | Sessoes | Static Data (memoria) | Redis / PostgreSQL |
-| Credentials | Hardcoded nos nodes | n8n Credentials Store |
+| Credentials | Variaveis de ambiente (`.env`) | n8n Credentials Store |
 | HTTPS | HTTP local | HTTPS via reverse proxy |
 | Monitoramento | Nenhum | Uptime + logs + alertas |
 | Backup | Nenhum | Workflow JSON + DB |
@@ -87,7 +87,7 @@ CREATE INDEX idx_sessions_expires ON bot_sessions(expires_at);
 | Nome | Tipo | Campos |
 |---|---|---|
 | Z-API Farmacia | Header Auth | `client-token: {valor}` |
-| OpenAI Farmacia | OpenAI API | `apiKey: {valor}` |
+| Groq Farmacia | Header Auth | `Authorization: Bearer {GROQ_API_KEY}` |
 
 3. **Atualizar HTTP Request nodes:**
    - Remover headers hardcoded
@@ -99,13 +99,15 @@ CREATE INDEX idx_sessions_expires ON bot_sessions(expires_at);
 ZAPI_INSTANCE_ID=xxxxx
 ZAPI_TOKEN=xxxxx
 ZAPI_CLIENT_TOKEN=xxxxx
-OPENAI_API_KEY=sk-xxxxx
+GROQ_API_KEY=gsk_xxxxx
+DASHBOARD_API_KEY=your-dashboard-key
+ATTENDANT_PHONE=5511999999999
 ```
 
 Referenciar no n8n:
 ```
 {{ $env.ZAPI_INSTANCE_ID }}
-{{ $env.OPENAI_API_KEY }}
+{{ $env.GROQ_API_KEY }}
 ```
 
 ## HTTPS via Reverse Proxy
@@ -194,7 +196,7 @@ if (rl.count > 30) {
 // Backoff: true
 ```
 
-### Para chamadas OpenAI (no Code node)
+### Para chamadas Groq (no Code node)
 
 ```javascript
 const MAX_RETRIES = 2;
@@ -202,12 +204,12 @@ const BASE_DELAY = 1000;
 
 for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
   try {
-    // Chamada OpenAI via $helpers ou HTTP
+    // Chamada Groq via HTTP
     const response = await $helpers.httpRequest({
       method: 'POST',
-      url: 'https://api.openai.com/v1/chat/completions',
-      headers: { 'Authorization': `Bearer ${$env.OPENAI_API_KEY}` },
-      body: { model: 'gpt-4o-mini', messages, max_tokens: 400 },
+      url: 'https://api.groq.com/openai/v1/chat/completions',
+      headers: { 'Authorization': `Bearer ${$env.GROQ_API_KEY}` },
+      body: { model: 'llama-3.3-70b-versatile', messages, max_tokens: 400 },
       timeout: 15000
     });
     return response;

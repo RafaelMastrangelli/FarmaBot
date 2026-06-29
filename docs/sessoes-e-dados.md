@@ -125,8 +125,8 @@ O evento `PEDIDO_CRIADO` verifica se o `orderId` ja existe em `ultimosEventos` a
 
 | Limitacao | Impacto | Mitigacao |
 |---|---|---|
-| Static Data e in-memory | Dados perdidos ao reiniciar n8n | Aceitavel para bot de demonstracao. Produção deve usar Redis ou banco de dados |
-| Sem persistencia em disco | Metricas historicas perdidas em reinicio | Node "Salva metrics.json" mantem copia, e endpoint futuro do WebApp |
+| Static Data e in-memory | Dados perdidos ao reiniciar n8n | Aceitavel para bot de demonstracao. Producao deve usar Redis ou banco de dados |
+| Sem persistencia em disco | Metricas historicas perdidas em reinicio | WebApp persiste metricas via endpoint `/api/metrics` |
 | Sessoes expiram em 2h | Usuario perde progresso apos inatividade | Tempo suficiente para fluxo completo de compra |
 | Limite de 200 eventos | Historico limitado | Suficiente para dashboard em tempo real |
 | Sem lock de concorrencia | Mensagens simultaneas do mesmo usuario podem causar race condition | Improvavel em WhatsApp (usuarios enviam uma mensagem por vez) |

@@ -28,7 +28,7 @@ Switch de Rotas
                                         [useAI=true]       [useAI=false]
                                                    |              |
                                                    v              v
-                                        OpenAI - Gera Resposta   Passa Resposta Direta
+                                        Groq - Gera Resposta       Passa Resposta Direta
                                                    |              |
                                                    v              |
                                         Extrai Resposta IA        |
@@ -52,7 +52,6 @@ Switch de Rotas
                                               |         |
                                               v         v
                                    Salva metrics.json  Envia ao WebApp
-                                                       (desabilitado)
 ```
 
 ## Detalhamento dos Nodes
@@ -167,26 +166,27 @@ Nodes auxiliares que ajustam a sessao e preparam contexto de IA adequado:
 | Campo | `useAI` (boolean) |
 
 Bifurcacao:
-- `useAI === true` -> OpenAI - Gera Resposta
+- `useAI === true` -> Groq - Gera Resposta
 - `useAI === false` (fallback) -> Passa Resposta Direta
 
-### 9. OpenAI - Gera Resposta
+### 9. Groq - Gera Resposta
 
 | Propriedade | Valor |
 |---|---|
 | Tipo | n8n-nodes-base.httpRequest |
 | Metodo | POST |
-| URL | `https://api.openai.com/v1/chat/completions` |
-| Modelo | gpt-4o-mini |
+| URL | `https://api.groq.com/openai/v1/chat/completions` |
+| Modelo | llama-3.3-70b-versatile |
 | Max Tokens | 400 |
 | Temperature | 0.7 |
 | Timeout | 15s |
+| Auth | `$env.GROQ_API_KEY` via header `Authorization` |
 
 System prompt define o tom: atendente virtual de farmacia, formatacao WhatsApp, maximo 300 caracteres.
 
 ### 10. Extrai Resposta IA
 
-Extrai `choices[0].message.content` da resposta OpenAI. Fallback para mensagem de erro generica.
+Extrai `choices[0].message.content` da resposta Groq (formato compativel com OpenAI). Fallback para mensagem de erro generica.
 
 ### 11. Passa Resposta Direta
 
@@ -223,9 +223,9 @@ Responde ao webhook Z-API com `{ "status": "ok" }`. Executado em paralelo com o 
 
 Switch que verifica se o node "Transferir para Humano" gerou um `alertaInterno` nao-vazio.
 
-### 16. Notifica Atendente (31972037415)
+### 16. Notifica Atendente
 
-Envia alerta formatado para o numero do atendente humano via Z-API com contexto completo do cliente.
+Envia alerta formatado para `$env.ATTENDANT_PHONE` via Z-API com contexto completo do cliente.
 
 ### 17. Coleta Metricas
 
@@ -235,4 +235,4 @@ Atualiza contadores em Static Data: mensagens, sessoes, pedidos, receita, transf
 
 - **Junta Fluxos**: Merge dos caminhos de alerta e metricas
 - **Salva metrics.json**: Persiste JSON de metricas no Static Data
-- **Envia ao WebApp**: HTTP POST para dashboard externo (desabilitado - URL placeholder)
+- **Envia ao WebApp**: HTTP POST para `http://host.docker.internal:5000/api/metrics` com `x-api-key`

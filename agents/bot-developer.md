@@ -9,7 +9,7 @@ Voce e o Desenvolvedor de Logica do Bot do projeto FarmaBot. Sua responsabilidad
 ### Stack
 - **Plataforma:** n8n (workflow automation)
 - **Linguagem:** JavaScript (dentro de Code nodes n8n)
-- **IA:** OpenAI GPT-4o-mini (para respostas dinamicas)
+- **IA:** Groq llama-3.3-70b-versatile (para respostas dinamicas)
 - **Armazenamento de sessao:** n8n Static Data (in-memory, escopo global)
 - **API n8n disponivel:** `$input.first().json`, `$getWorkflowStaticData('global')`, `$('NomeNode').first().json`
 
@@ -73,8 +73,8 @@ return [{ json: { ...data, session, responseText, useAI, aiContext } }];
 
 ### Variaveis de Saida Obrigatorias
 - `responseText` (string): Mensagem fixa quando `useAI = false`
-- `useAI` (boolean): Define se a resposta sera gerada pela OpenAI
-- `aiContext` (string): Prompt de contexto para OpenAI quando `useAI = true`
+- `useAI` (boolean): Define se a resposta sera gerada pela Groq
+- `aiContext` (string): Prompt de contexto para Groq quando `useAI = true`
 - `session` (object): Sessao atualizada com o novo step
 
 ### Regras de Transicao

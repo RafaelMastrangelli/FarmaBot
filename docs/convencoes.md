@@ -12,7 +12,7 @@ Os nodes seguem um padrao descritivo em portugues que indica a acao ou decisao:
 | Verbo + Complemento | "Busca Sessao (Static Data)" | Nodes com contexto adicional entre parenteses |
 | Pergunta? | "Tem Alerta de Humano?", "Usa IA ou Resposta Direta" | Nodes de decisao (Switch/If) |
 | Substantivo | "Coleta Metricas", "Junta Fluxos" | Nodes de processamento intermediario |
-| Nome + Contexto | "Notifica Atendente (31972037415)" | Nodes com informacao especifica entre parenteses |
+| Nome + Contexto | "Busca Sessao (Static Data)" | Nodes com contexto adicional entre parenteses |
 
 ### Convencoes
 
@@ -68,8 +68,8 @@ Todos os nodes propagam os dados recebidos usando spread (`...data`), adicionand
 | `isNewSession` | boolean | Se e uma nova sessao |
 | `route` | string | Rota decidida |
 | `responseText` | string | Resposta direta (sem IA) |
-| `useAI` | boolean | Se deve usar OpenAI |
-| `aiContext` | string | Prompt para a OpenAI |
+| `useAI` | boolean | Se deve usar Groq (IA) |
+| `aiContext` | string | Prompt para a Groq |
 | `finalMessage` | string | Mensagem final a ser enviada |
 | `alertaInterno` | string | Alerta para atendente (se houver) |
 
@@ -173,5 +173,6 @@ Steps usam `UPPER_SNAKE_CASE` em portugues:
 4. **Limpar sessoes antigas**: A cada execucao, remover sessoes com mais de 2h
 5. **Limitar arrays**: Manter maximo de 200 eventos no historico de metricas
 6. **Evitar duplicatas**: Verificar se evento ja existe antes de incrementar contadores
-7. **Timeout adequado**: 15s para OpenAI, 10s para Z-API
-8. **Respostas concisas**: System prompt limita a ~300 caracteres quando possivel
+7. **Timeout adequado**: 15s para Groq, 10s para Z-API, 5s para WebApp
+8. **Credenciais em env vars**: Nunca hardcodar tokens ou API keys nos nodes
+9. **Respostas concisas**: System prompt limita a ~300 caracteres quando possivel

@@ -11,7 +11,7 @@ description: Projetar, adicionar e reorganizar nodes no workflow n8n do FarmaBot
 Webhook Z-API -> Normaliza Mensagem -> Busca Sessao -> Decide Rota -> Switch de Rotas
   -> [4 ramos: Em Fila Humano | Transferir para Humano | Reset Menu | Logica do Bot]
   -> Usa IA ou Resposta Direta (Switch boolean useAI)
-  -> [OpenAI -> Extrai Resposta IA] ou [Passa Resposta Direta]
+  -> [Groq -> Extrai Resposta IA] ou [Passa Resposta Direta]
   -> Unifica Mensagem Final (Merge)
   -> Envia Mensagem Z-API + Responde 200 OK (paralelo)
   -> Tem Alerta de Humano? (Switch)
@@ -27,7 +27,7 @@ Webhook Z-API -> Normaliza Mensagem -> Busca Sessao -> Decide Rota -> Switch de 
 | `n8n-nodes-base.switch` | Roteamento condicional (multiplas saidas) |
 | `n8n-nodes-base.if` | Decisao binaria simples (true/false) |
 | `n8n-nodes-base.merge` | Juntar caminhos paralelos |
-| `n8n-nodes-base.httpRequest` | Chamadas a APIs externas (Z-API, OpenAI) |
+| `n8n-nodes-base.httpRequest` | Chamadas a APIs externas (Z-API, Groq) |
 | `n8n-nodes-base.webhook` | Ponto de entrada HTTP |
 | `n8n-nodes-base.respondToWebhook` | Responder ao webhook explicitamente |
 | `n8n-nodes-base.set` | Definir campos simples sem codigo |
@@ -40,7 +40,7 @@ Webhook Z-API -> Normaliza Mensagem -> Busca Sessao -> Decide Rota -> Switch de 
 | Verbo + Objeto (acao) | "Envia Mensagem Z-API" |
 | Verbo + Complemento (contexto) | "Busca Sessao (Static Data)" |
 | Pergunta? (decisao) | "Tem Alerta de Humano?" |
-| Nome + Contexto (especifico) | "Notifica Atendente (31972037415)" |
+| Nome + Contexto (especifico) | "Busca Sessao (Static Data)" |
 
 Regras:
 - Nomes em **portugues** sem acentos
@@ -82,7 +82,7 @@ Campo final adicionado no merge: `finalMessage`
 ## Bifurcacao IA/Direta
 
 O Switch "Usa IA ou Resposta Direta" separa em:
-- `useAI === true` -> OpenAI -> Extrai Resposta IA -> `finalMessage`
+- `useAI === true` -> Groq -> Extrai Resposta IA -> `finalMessage`
 - `useAI === false` (fallback) -> Passa Resposta Direta -> `finalMessage`
 
 Merge "Unifica Mensagem Final" junta os dois caminhos (IA na entrada 0, direto na entrada 1).

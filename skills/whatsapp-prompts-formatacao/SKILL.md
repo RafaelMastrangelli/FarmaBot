@@ -1,6 +1,6 @@
 ﻿---
 name: whatsapp-prompts-formatacao
-description: Criar e otimizar prompts para OpenAI e formatar mensagens WhatsApp no FarmaBot. Usar quando precisar escrever system prompt, montar aiContext com variaveis dinamicas, aplicar formatacao WhatsApp (bold, emoji, listas), ajustar parametros do modelo (temperature, max_tokens), definir personas (atendente vs farmaceutico), ou melhorar qualidade das respostas da IA.
+description: Criar e otimizar prompts para Groq e formatar mensagens WhatsApp no FarmaBot. Usar quando precisar escrever system prompt, montar aiContext com variaveis dinamicas, aplicar formatacao WhatsApp (bold, emoji, listas), ajustar parametros do modelo (temperature, max_tokens), definir personas (atendente vs farmaceutico), ou melhorar qualidade das respostas da IA.
 ---
 
 # WhatsApp Prompts & Formatacao - FarmaBot
@@ -67,12 +67,12 @@ const confirmacao =
   `_Obrigado pela preferencia! 💚_`;
 ```
 
-## Sistema de Prompts OpenAI
+## Sistema de Prompts (Groq)
 
 ### Parametros do Modelo
 
 ```
-Modelo: gpt-4o-mini
+Modelo: llama-3.3-70b-versatile
 max_tokens: 400
 temperature: 0.7
 ```
@@ -81,7 +81,7 @@ temperature: 0.7
 |---|---|---|
 | max_tokens | 400 | Mensagens WhatsApp devem ser concisas |
 | temperature | 0.7 | Equilibrio entre criatividade e consistencia |
-| model | gpt-4o-mini | Custo-beneficio para conversacional |
+| model | llama-3.3-70b-versatile | Rapido e economico via Groq |
 
 ### System Prompt - Template Base
 

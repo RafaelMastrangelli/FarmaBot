@@ -42,7 +42,7 @@ Bot de atendimento automatizado para farmacia via WhatsApp que permite:
 | Prazo de entrega | Ate 4 horas |
 | Receita medica | Obrigatoria para categorias 2 e 5 |
 | Chave PIX | farmacia@exemplo.com |
-| Atendente humano | Numero 31972037415, tempo de resposta ~5min |
+| Atendente humano | `$env.ATTENDANT_PHONE`, tempo de resposta ~5min |
 | Sessao expira | 2 horas sem interacao |
 
 ### Metricas Coletadas

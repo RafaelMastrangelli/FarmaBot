@@ -184,7 +184,7 @@ Esperado: "5511987654321" (sufixo removido)
 1. **Criar cenarios de teste** para cada novo estado ou feature
 2. **Testar transicoes** entre todos os estados possiveis
 3. **Validar edge cases**: entradas vazias, numeros invalidos, caracteres especiais
-4. **Testar integracoes**: payload Z-API, resposta OpenAI, timeout
+4. **Testar integracoes**: payload Z-API, resposta Groq, timeout
 5. **Verificar metricas**: contadores corretos apos fluxos completos
 6. **Testar modo debug**: garantir que `_debugMode` funciona corretamente
 7. **Reportar bugs** com passos de reproducao claros

@@ -1,6 +1,6 @@
 ﻿---
 name: integracoes-api-externas
-description: Configurar e usar APIs externas no FarmaBot - Z-API (WhatsApp), OpenAI (GPT), e webhook. Usar quando precisar configurar endpoint Z-API, tratar payload do webhook, montar requisicao OpenAI, adicionar nova integracao externa, tratar erros de API, configurar credentials, ou debugar comunicacao HTTP.
+description: Configurar e usar APIs externas no FarmaBot - Z-API (WhatsApp), Groq (IA), e webhook. Usar quando precisar configurar endpoint Z-API, tratar payload do webhook, montar requisicao Groq, adicionar nova integracao externa, tratar erros de API, configurar credentials, ou debugar comunicacao HTTP.
 ---
 
 # Integracoes API Externas - FarmaBot
@@ -121,39 +121,39 @@ POST /send-document
 }
 ```
 
-## OpenAI (GPT-4o-mini)
+## Groq (llama-3.3-70b-versatile)
 
 ### Configuracao
 
 | Campo | Valor |
 |---|---|
-| Modelo | `gpt-4o-mini` |
-| API Key | Variavel de ambiente / n8n Credential |
-| Base URL | `https://api.openai.com/v1/chat/completions` |
+| Modelo | `llama-3.3-70b-versatile` |
+| API Key | `$env.GROQ_API_KEY` (ver `.env.example`) |
+| Base URL | `https://api.groq.com/openai/v1/chat/completions` |
 | Timeout | 15 segundos |
 
-### Requisicao (HTTP Request node)
+### Requisicao (HTTP Request node — "Groq - Gera Resposta")
 
 ```
 Metodo: POST
-URL: https://api.openai.com/v1/chat/completions
+URL: https://api.groq.com/openai/v1/chat/completions
 Headers:
-  Authorization: Bearer {{OPENAI_API_KEY}}
+  Authorization: Bearer {{ $env.GROQ_API_KEY }}
   Content-Type: application/json
 
 Body:
 {
-  "model": "gpt-4o-mini",
+  "model": "llama-3.3-70b-versatile",
   "max_tokens": 400,
   "temperature": 0.7,
   "messages": [
     {
       "role": "system",
-      "content": "{{ $json.aiContext }}"
+      "content": "Voce e um atendente virtual de farmacia..."
     },
     {
       "role": "user",
-      "content": "{{ $json.messageText }}"
+      "content": "{{ $json.aiContext }}"
     }
   ]
 }
@@ -166,7 +166,7 @@ Body:
 ```javascript
 const data = $input.first().json;
 
-// Resposta vem em choices[0].message.content
+// Resposta vem em choices[0].message.content (formato OpenAI-compatible)
 const aiResponse = data.choices?.[0]?.message?.content || '';
 
 // Fallback se IA nao responder
@@ -181,7 +181,7 @@ return [{
 }];
 ```
 
-### Tratamento de Erros OpenAI
+### Tratamento de Erros Groq
 
 ```javascript
 const data = $input.first().json;
@@ -189,7 +189,7 @@ const data = $input.first().json;
 // Se houve erro na chamada
 if (!data.choices || data.error) {
   const errorMsg = data.error?.message || 'Erro desconhecido';
-  console.log(`OpenAI Error: ${errorMsg}`);
+  console.log(`Groq Error: ${errorMsg}`);
 
   return [{
     json: {
@@ -206,7 +206,8 @@ if (!data.choices || data.error) {
 | Servico | Timeout | Retries | Fallback |
 |---|---|---|---|
 | Z-API (envio) | 10s | 1 retry | Log erro, nao reenviar |
-| OpenAI | 15s | 0 | Mensagem padrao de fallback |
+| Groq | 15s | 0 | Mensagem padrao de fallback |
+| WebApp metricas | 5s | 0 | Ignora falha silenciosamente |
 | Webhook (resposta) | 5s | - | Responde 200 imediato |
 
 ### Padrao de Retry (futuro)
@@ -226,21 +227,33 @@ async function callWithRetry(fn, maxRetries = 2, delayMs = 1000) {
 
 ## Credentials (n8n)
 
-### Atual (variaveis inline)
-```
-Z-API Instance ID: hardcoded no URL
-Z-API Token: hardcoded no URL
-Z-API Client Token: hardcoded no header
-OpenAI API Key: hardcoded no header
+### Atual (variaveis de ambiente — recomendado)
+
+Copie `.env.example` para `.env` e configure:
+
+```env
+ZAPI_INSTANCE_ID=your-instance-id
+ZAPI_TOKEN=your-token
+ZAPI_CLIENT_TOKEN=your-client-token
+GROQ_API_KEY=gsk_your_key
+DASHBOARD_API_KEY=your-dashboard-key
+ATTENDANT_PHONE=5511999999999
 ```
 
-### Recomendado (n8n Credentials)
+No n8n (via `$env.*` nos nodes):
+```
+URL Z-API: {{ 'https://api.z-api.io/instances/' + $env.ZAPI_INSTANCE_ID + '/token/' + $env.ZAPI_TOKEN + '/send-text' }}
+Client-Token: {{ $env.ZAPI_CLIENT_TOKEN }}
+Authorization: {{ 'Bearer ' + $env.GROQ_API_KEY }}
+x-api-key: {{ $env.DASHBOARD_API_KEY }}
+```
 
-Migrar para n8n Credentials Store:
+### Alternativa (n8n Credentials Store)
+
+Migrar para n8n Credentials Store em producao:
 1. Settings > Credentials > Add Credential
-2. Tipo: "Header Auth" para Z-API
-3. Tipo: "OpenAI API" para OpenAI (built-in)
-4. Referenciar via `{{ $credentials.zapi.clientToken }}` etc.
+2. Tipo: "Header Auth" para Z-API, "OpenAI API" para Groq (compativel)
+3. Referenciar via dropdown nos HTTP Request nodes
 
 ## Adicionando Nova Integracao
 
@@ -290,4 +303,4 @@ return [{
 6. [ ] Fallback definido para erro/timeout
 7. [ ] Dados propagados com `...data`
 8. [ ] Telefone normalizado antes de enviar para Z-API
-9. [ ] Credentials em variavel (nao hardcoded) - migrar para n8n Credentials
+9. [ ] Credenciais em `.env` (nunca hardcoded nos nodes)

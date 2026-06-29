@@ -405,13 +405,12 @@ CREATE TABLE orders (
 
 ### Ativar o envio de metricas no n8n
 
-Apos o WebApp estar rodando no Replit:
+Apos o WebApp estar rodando (local via `.\start.ps1` ou em producao):
 
 1. Abrir o workflow no editor n8n
-2. No node **"Envia ao WebApp (Desabilitado ate ficar pronto)"**:
-   - Substituir URL `https://SEU-WEBAPP.replit.app/api/metrics` pela URL real do Replit
-   - Substituir `COLOQUE_SUA_API_KEY_AQUI` pela API key configurada no Replit
-   - Habilitar o node (clicar com botao direito > Enable)
+2. No node **"Envia ao WebApp"**:
+   - Confirmar URL: `http://host.docker.internal:5000/api/metrics` (local) ou URL de producao
+   - Confirmar que `$env.DASHBOARD_API_KEY` esta configurada no n8n (mesmo valor do WebApp)
 3. Salvar o workflow
 4. Testar enviando uma mensagem no WhatsApp e verificar se o dashboard atualiza
 

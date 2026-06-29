@@ -23,9 +23,14 @@ O FarmaBot e um workflow n8n que funciona como um chatbot de atendimento para fa
                   +--------------+-------------+
                   |              |              |
            +------v---+  +------v---+  +-------v------+
-           | OpenAI   |  | Z-API    |  | Metricas     |
-           | GPT-4o   |  | send-txt |  | Static Data  |
-           +----------+  +----------+  +--------------+
+           | Groq     |  | Z-API    |  | Metricas     |
+           | Llama 3.3|  | send-txt |  | Static Data  |
+           +----------+  +----------+  +-------+------+
+                                              |
+                                       +------v------+
+                                       | WebApp      |
+                                       | Dashboard   |
+                                       +-------------+
 ```
 
 ## Componentes Principais
@@ -45,17 +50,20 @@ Sequencia linear de processamento:
 3. **Decide Rota** - Classifica a mensagem em uma das 4 rotas possiveis
 4. **Switch de Rotas** - Direciona para o node correto baseado na rota
 5. **Logica do Bot** - Maquina de estados principal com catalogo e carrinho
-6. **Usa IA ou Resposta Direta** - Decide se a resposta vem da OpenAI ou e fixa
+6. **Usa IA ou Resposta Direta** - Decide se a resposta vem da Groq ou e fixa
 7. **Unifica Mensagem Final** - Merge dos dois caminhos (IA e direto)
 
 ### 3. Canal de Saida (Z-API send-text)
 
 - Envia a resposta formatada de volta ao WhatsApp do usuario
 - API: `POST /send-text` na instancia Z-API configurada
+- Credenciais via `$env.ZAPI_INSTANCE_ID`, `$env.ZAPI_TOKEN`, `$env.ZAPI_CLIENT_TOKEN`
 
-### 4. Subsistema de IA (OpenAI)
+### 4. Subsistema de IA (Groq)
 
-- Modelo: `gpt-4o-mini`
+- Modelo: `llama-3.3-70b-versatile`
+- Endpoint: `POST https://api.groq.com/openai/v1/chat/completions`
+- Autenticacao: `$env.GROQ_API_KEY` no header `Authorization`
 - Papel: Gerar respostas naturais e contextuais quando o bot precisa de linguagem dinamica
 - System prompt fixo que define tom e formato WhatsApp
 - User prompt montado dinamicamente pelo node "Logica do Bot" com contexto da interacao
@@ -64,11 +72,11 @@ Sequencia linear de processamento:
 
 - Coleta dados de uso (mensagens, sessoes, pedidos, receita, transferencias)
 - Armazena em n8n Static Data (persistencia in-memory entre execucoes)
-- Endpoint futuro para WebApp de dashboard (desabilitado)
+- Envia payload para o WebApp via `POST /api/metrics` com header `x-api-key`
 
 ### 6. Subsistema de Alerta Humano
 
-- Quando o usuario pede atendente, notifica um numero fixo (31972037415) via Z-API
+- Quando o usuario pede atendente, notifica o numero em `$env.ATTENDANT_PHONE` via Z-API
 - Envia contexto completo: nome do cliente, telefone, mensagem, valor do carrinho
 
 ## Fluxo de Dados
@@ -91,12 +99,12 @@ Mensagem WhatsApp
     v
 { ...dados, responseText, useAI, aiContext }
     |
-    +--[useAI=true]--> OpenAI --> { finalMessage }
+    +--[useAI=true]--> Groq --> { finalMessage }
     |
     +--[useAI=false]-> Direto --> { finalMessage }
     |
     v
-[Envia via Z-API] --> [Metricas] --> [Alerta humano se necessario]
+[Envia via Z-API] --> [Metricas] --> [WebApp] --> [Alerta humano se necessario]
 ```
 
 ## Decisoes Arquiteturais
@@ -104,7 +112,8 @@ Mensagem WhatsApp
 | Decisao | Justificativa |
 |---|---|
 | n8n Static Data para sessoes | Simplicidade, sem necessidade de banco externo. Sessoes expiram em 2h. |
-| OpenAI via HTTP Request (nao node nativo) | Maior controle sobre payload, headers e timeout |
+| Groq via HTTP Request (nao node nativo) | Maior controle sobre payload, headers e timeout; API compativel com OpenAI |
+| Credenciais via variaveis de ambiente | Evita exposicao em repositorio publico e facilita rotacao de chaves |
 | Maquina de estados no Code node | Logica complexa de fluxo de compra nao cabe em nodes visuais simples |
 | Z-API como provider WhatsApp | API brasileira com boa integracao e suporte a envio/recebimento |
 | responseMode: responseNode | Permite responder 200 OK ao Z-API de forma explicita apos todo processamento |

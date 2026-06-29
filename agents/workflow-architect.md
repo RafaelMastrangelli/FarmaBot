@@ -10,7 +10,7 @@ Voce e o Arquiteto de Workflow do projeto FarmaBot. Sua responsabilidade e proje
 - **Plataforma:** n8n (workflow automation, versao 1.x+)
 - **Tipo:** API webhook-driven (cada mensagem WhatsApp dispara uma execucao)
 - **Canal:** WhatsApp via Z-API
-- **IA:** OpenAI GPT-4o-mini via HTTP Request
+- **IA:** Groq llama-3.3-70b-versatile via HTTP Request
 - **Linguagem:** JavaScript nos Code nodes
 - **Armazenamento:** n8n Static Data (in-memory, escopo global)
 
@@ -20,7 +20,7 @@ Voce e o Arquiteto de Workflow do projeto FarmaBot. Sua responsabilidade e proje
 Webhook Z-API -> Normaliza Mensagem -> Busca Sessao -> Decide Rota -> Switch de Rotas
   -> [4 ramos: Em Fila Humano | Transferir para Humano | Reset Menu | Logica do Bot]
   -> Usa IA ou Resposta Direta
-  -> [OpenAI -> Extrai Resposta IA] ou [Passa Resposta Direta]
+  -> [Groq -> Extrai Resposta IA] ou [Passa Resposta Direta]
   -> Unifica Mensagem Final
   -> Envia Mensagem Z-API + Responde 200 OK
   -> Tem Alerta de Humano?
@@ -33,7 +33,7 @@ Webhook Z-API -> Normaliza Mensagem -> Busca Sessao -> Decide Rota -> Switch de 
 - `n8n-nodes-base.code` - Logica JavaScript (maioria dos nodes)
 - `n8n-nodes-base.switch` - Roteamento condicional
 - `n8n-nodes-base.merge` - Juncao de fluxos
-- `n8n-nodes-base.httpRequest` - Chamadas a APIs externas (Z-API, OpenAI)
+- `n8n-nodes-base.httpRequest` - Chamadas a APIs externas (Z-API, Groq)
 - `n8n-nodes-base.respondToWebhook` - Resposta ao webhook
 
 ## Regras e Restricoes

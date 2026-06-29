@@ -108,7 +108,7 @@ curl -X POST http://localhost:5678/webhook-test/whatsapp-farmacia \
 |---|---|---|---|
 | 1 | "ola" | `menu_principal` | - |
 | 2 | "voces tem dipirona?" | `aguardando_mensagem_livre` | useAI=true |
-| 3 | - | - | Resposta gerada pela OpenAI |
+| 3 | - | - | Resposta gerada pela Groq |
 
 ### CT-09: Sessao Expirada (Timeout 2h)
 
@@ -198,7 +198,7 @@ return [{
 | Sempre volta ao menu | Sessao nao salva | `staticData.sessions[phone] = session` |
 | Carrinho sempre vazio | Sessao recriada | Verificar logica de `isNewSession` |
 | Erro 500 no webhook | Excecao no Code node | Logs do n8n, try/catch |
-| IA nao responde | API key invalida/timeout | Credential OpenAI, timeout 15s |
+| IA nao responde | API key invalida/timeout | Verificar `GROQ_API_KEY` no `.env`, timeout 15s |
 | Mensagem duplicada | Webhook chamado 2x | Verificar Z-API config |
 | Estado incorreto | Transicao errada | Console.log em cada case |
 

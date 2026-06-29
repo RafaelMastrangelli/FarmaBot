@@ -1,5 +1,22 @@
 # Integracoes
 
+## Visao Geral de Credenciais
+
+Todas as credenciais sao configuradas via **variaveis de ambiente**. Copie `.env.example` para `.env` e preencha os valores.
+
+| Variavel | Servico | Uso |
+|---|---|---|
+| `ZAPI_INSTANCE_ID` | Z-API | URL dos nodes de envio |
+| `ZAPI_TOKEN` | Z-API | URL dos nodes de envio |
+| `ZAPI_CLIENT_TOKEN` | Z-API | Header `Client-Token` |
+| `GROQ_API_KEY` | Groq | Header `Authorization` (IA) |
+| `DASHBOARD_API_KEY` | WebApp | Header `x-api-key` (metricas) |
+| `ATTENDANT_PHONE` | Alerta humano | Destino das notificacoes de transferencia |
+
+No n8n, os nodes referenciam essas variaveis com `$env.NOME_DA_VARIAVEL`.
+
+---
+
 ## 1. Z-API (WhatsApp)
 
 ### O que e
@@ -38,46 +55,40 @@ O Z-API envia callbacks via POST para o endpoint do n8n sempre que uma mensagem 
 **Body:**
 ```json
 {
-  "phone": "5531999999999",
+  "phone": "5511999999999",
   "message": "Texto da resposta"
 }
 ```
 
 **Timeout:** 10 segundos
 
-### Credenciais Necessarias
-
-| Credencial | Onde Obter | Onde Configurar |
-|---|---|---|
-| Instance ID | Painel Z-API | URL do node "Envia Mensagem Z-API" |
-| Token | Painel Z-API | URL do node "Envia Mensagem Z-API" |
-| Client-Token | Painel Z-API | Header do node "Envia Mensagem Z-API" |
-
-**IMPORTANTE:** As mesmas credenciais sao usadas no node "Notifica Atendente".
+**Nodes que usam Z-API:**
+- `Envia Mensagem Z-API` — resposta ao cliente
+- `Notifica Atendente` — alerta de transferencia humana
 
 ---
 
-## 2. OpenAI
+## 2. Groq (IA)
 
 ### O que e
 
-API da OpenAI utilizada para gerar respostas naturais e contextuais em linguagem humana.
+API da Groq utilizada para gerar respostas naturais e contextuais. A API e compativel com o formato OpenAI Chat Completions.
 
 ### Endpoint
 
-**URL:** `POST https://api.openai.com/v1/chat/completions`
+**URL:** `POST https://api.groq.com/openai/v1/chat/completions`
 
 **Headers:**
 | Header | Valor |
 |---|---|
-| `Authorization` | `Bearer sk-proj-...` |
+| `Authorization` | `Bearer {{ $env.GROQ_API_KEY }}` |
 | `Content-Type` | `application/json` |
 
 ### Parametros
 
 | Parametro | Valor | Descricao |
 |---|---|---|
-| `model` | `gpt-4o-mini` | Modelo utilizado (rapido e economico) |
+| `model` | `llama-3.3-70b-versatile` | Modelo utilizado (rapido e economico) |
 | `max_tokens` | 400 | Limite de tokens na resposta |
 | `temperature` | 0.7 | Criatividade moderada |
 | `timeout` | 15000ms | Timeout da requisicao |
@@ -104,37 +115,50 @@ O campo `aiContext` e montado dinamicamente pela maquina de estados no node "Log
 - Confirmar quantidade e adicao ao carrinho
 - Apresentar resumo do pedido
 
-### Credenciais Necessarias
+### Credenciais
 
 | Credencial | Onde Obter | Onde Configurar |
 |---|---|---|
-| API Key | OpenAI Platform (platform.openai.com) | Header `Authorization` no node "OpenAI - Gera Resposta" |
+| API Key | [console.groq.com](https://console.groq.com) | Variavel `GROQ_API_KEY` no `.env` / n8n |
+
+**Node:** `Groq - Gera Resposta`
 
 ---
 
-## 3. WebApp de Metricas (Futuro)
+## 3. WebApp de Metricas
 
-### Status: Desabilitado
+### Status: Ativo (ambiente local)
 
-O node "Envia ao WebApp" esta desabilitado (`disabled: true`) e usa URLs placeholder.
+O node `Envia ao WebApp` envia metricas para o dashboard apos cada interacao.
 
-**Endpoint planejado:** `POST https://<webapp>/api/metrics`
-
-**Headers planejados:**
-| Header | Valor |
+| Propriedade | Valor |
 |---|---|
-| `x-api-key` | Chave de API do WebApp |
+| Metodo | POST |
+| URL (local) | `http://host.docker.internal:5000/api/metrics` |
+| Header | `x-api-key: {{ $env.DASHBOARD_API_KEY }}` |
+| Body | Objeto `metricsPayload` com estatisticas agregadas |
+| Timeout | 5 segundos |
 
-**Body:** Objeto `metricsPayload` contendo estatisticas agregadas.
+### Para ambiente de producao
 
-### Para ativar:
-1. Substituir URL placeholder pela URL real do WebApp
-2. Configurar a API key correta no header
-3. Habilitar o node no editor n8n (remover disabled)
-4. Testar o envio de metricas
+1. Substituir a URL pelo dominio real do dashboard
+2. Configurar `DASHBOARD_API_KEY` identica nos dois lados (n8n e WebApp)
+3. Garantir que o n8n consiga acessar o endpoint via rede interna ou HTTPS
+
+### Submodule
+
+O codigo do dashboard esta em `WebApp/Metric-Dashboard-Farmacia` (git submodule). Inicialize com:
+
+```powershell
+git submodule update --init
+```
 
 ---
 
 ## 4. Numero do Atendente Humano
 
-O numero `31972037415` esta hardcoded no node "Notifica Atendente" como destinatario dos alertas de transferencia. Para alterar, edite o campo `phone` no body JSON desse node.
+O destino dos alertas de transferencia e configurado pela variavel `ATTENDANT_PHONE`.
+
+**Formato:** DDI + DDD + numero, sem espacos ou simbolos (ex: `5511999999999`)
+
+**Node:** `Notifica Atendente` — usa `$env.ATTENDANT_PHONE` no body JSON

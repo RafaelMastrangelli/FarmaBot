@@ -1,6 +1,6 @@
 ﻿# Skills - FarmaBot
 
-Skills especificas para desenvolvimento e manutencao do FarmaBot (WhatsApp + n8n + OpenAI).
+Skills especificas para desenvolvimento e manutencao do FarmaBot (WhatsApp + n8n + Groq).
 
 Cada skill contem instrucoes detalhadas, templates de codigo, regras de validacao e checklists para garantir consistencia no desenvolvimento.
 
@@ -10,8 +10,8 @@ Cada skill contem instrucoes detalhadas, templates de codigo, regras de validaca
 |---|---|---|---|
 | 1 | [n8n-maquina-de-estados](n8n-maquina-de-estados/SKILL.md) | Adicionar/modificar estados na FSM do bot | Bot Developer + Code Reviewer |
 | 2 | [n8n-workflow-architecture](n8n-workflow-architecture/SKILL.md) | Projetar nodes, conexoes e pipeline de dados no n8n | Workflow Architect |
-| 3 | [whatsapp-prompts-formatacao](whatsapp-prompts-formatacao/SKILL.md) | Prompts OpenAI + formatacao de mensagens WhatsApp | Prompt Engineer |
-| 4 | [integracoes-api-externas](integracoes-api-externas/SKILL.md) | Configurar Z-API, OpenAI e novas APIs externas | Integration Specialist |
+| 3 | [whatsapp-prompts-formatacao](whatsapp-prompts-formatacao/SKILL.md) | Prompts Groq + formatacao de mensagens WhatsApp | Prompt Engineer |
+| 4 | [integracoes-api-externas](integracoes-api-externas/SKILL.md) | Configurar Z-API, Groq e novas APIs externas | Integration Specialist |
 | 5 | [testes-conversacao-bot](testes-conversacao-bot/SKILL.md) | Cenarios de teste e validacao de fluxos | QA Tester |
 | 6 | [deploy-producao-n8n](deploy-producao-n8n/SKILL.md) | Deploy, Redis, credentials, monitoramento | DevOps Engineer |
 | 7 | [catalogo-regras-negocio](catalogo-regras-negocio/SKILL.md) | Produtos, precos, frete, desconto, features | Product Owner |
@@ -23,7 +23,7 @@ Cada skill contem instrucoes detalhadas, templates de codigo, regras de validaca
 |---|---|
 | Adicionar novo estado ao bot | n8n-maquina-de-estados |
 | Criar/modificar node no workflow | n8n-workflow-architecture |
-| Escrever prompt para OpenAI | whatsapp-prompts-formatacao |
+| Escrever prompt para Groq | whatsapp-prompts-formatacao |
 | Formatar mensagem WhatsApp | whatsapp-prompts-formatacao |
 | Configurar webhook Z-API | integracoes-api-externas |
 | Adicionar nova API externa | integracoes-api-externas |

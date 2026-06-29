@@ -79,7 +79,7 @@ let aiContext = '';
 
 Toda saida deve ter:
 - `responseText` (string): mensagem quando `useAI = false`
-- `useAI` (boolean): se a OpenAI deve gerar resposta
+- `useAI` (boolean): se a Groq deve gerar resposta
 - `aiContext` (string): prompt de contexto para IA quando `useAI = true`
 - `session` (object): sessao atualizada com novo `step`
 
