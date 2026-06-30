@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="FarmaBot — bot de atendimento automatizado para farmácia via WhatsApp, construído com n8n, Groq e Z-API.">
+  <title>FarmaBot — Atendimento WhatsApp para Farmácia</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #f4f9f6;
+      --surface: #ffffff;
+      --surface-alt: #eaf5ef;
+      --text: #1a2e24;
+      --text-muted: #5a7268;
+      --accent: #0d8f5f;
+      --accent-dark: #067a4f;
+      --accent-light: #d4f0e4;
+      --border: #cfe0d8;
+      --shadow: 0 4px 24px rgba(13, 143, 95, 0.08);
+      --radius: 12px;
+      --radius-lg: 20px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'DM Sans', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    .hero {
+      background: linear-gradient(135deg, #067a4f 0%, #0d8f5f 50%, #12a86e 100%);
+      color: #fff;
+      padding: 4rem 1.5rem 5rem;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at 20% 80%, rgba(255,255,255,0.12) 0%, transparent 50%),
+                  radial-gradient(circle at 80% 20%, rgba(255,255,255,0.08) 0%, transparent 40%);
+      pointer-events: none;
+    }
+
+    .hero-inner { position: relative; max-width: 720px; margin: 0 auto; }
+
+    .badge {
+      display: inline-block;
+      background: rgba(255,255,255,0.18);
+      border: 1px solid rgba(255,255,255,0.3);
+      padding: 0.35rem 0.9rem;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      letter-spacing: 0.03em;
+      margin-bottom: 1.25rem;
+    }
+
+    .hero h1 {
+      font-size: clamp(2rem, 5vw, 3rem);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 1rem;
+    }
+
+    .hero p {
+      font-size: 1.15rem;
+      opacity: 0.92;
+      max-width: 540px;
+      margin: 0 auto 2rem;
+    }
+
+    .hero-actions {
+      display: flex;
+      gap: 0.75rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.7rem 1.4rem;
+      border-radius: 999px;
+      font-weight: 600;
+      font-size: 0.95rem;
+      text-decoration: none;
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+
+    .btn:hover { transform: translateY(-1px); }
+
+    .btn-primary {
+      background: #fff;
+      color: var(--accent-dark);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+    }
+
+    .btn-primary:hover { box-shadow: 0 6px 20px rgba(0,0,0,0.2); }
+
+    .btn-ghost {
+      background: transparent;
+      color: #fff;
+      border: 1.5px solid rgba(255,255,255,0.5);
+    }
+
+    .btn-ghost:hover { background: rgba(255,255,255,0.1); }
+
+    main {
+      max-width: 960px;
+      margin: -2.5rem auto 0;
+      padding: 0 1.5rem 4rem;
+      position: relative;
+    }
+
+    .stack-card {
+      background: var(--surface);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow);
+      border: 1px solid var(--border);
+      padding: 1.75rem 2rem;
+      margin-bottom: 2.5rem;
+    }
+
+    .stack-card h2 {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--accent);
+      font-weight: 600;
+      margin-bottom: 1rem;
+    }
+
+    .stack-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 0.75rem;
+    }
+
+    .stack-item {
+      background: var(--surface-alt);
+      border-radius: var(--radius);
+      padding: 0.75rem 1rem;
+      text-align: center;
+    }
+
+    .stack-item strong {
+      display: block;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      font-weight: 500;
+      margin-bottom: 0.2rem;
+    }
+
+    .stack-item span {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    section { margin-bottom: 2.5rem; }
+
+    section > h2 {
+      font-size: 1.35rem;
+      font-weight: 700;
+      margin-bottom: 0.4rem;
+      letter-spacing: -0.01em;
+    }
+
+    section > .subtitle {
+      color: var(--text-muted);
+      margin-bottom: 1.25rem;
+      font-size: 0.95rem;
+    }
+
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 1rem;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem 1.4rem;
+      text-decoration: none;
+      color: inherit;
+      transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+      display: block;
+    }
+
+    .card:hover {
+      border-color: var(--accent);
+      box-shadow: var(--shadow);
+      transform: translateY(-2px);
+    }
+
+    .card h3 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 0.35rem;
+      color: var(--accent-dark);
+    }
+
+    .card p {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    .card .arrow {
+      margin-top: 0.6rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--accent);
+    }
+
+    .features {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 0.75rem;
+    }
+
+    .feature {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem 1.2rem;
+      font-size: 0.9rem;
+    }
+
+    .feature::before {
+      content: '✓';
+      display: inline-block;
+      width: 1.4rem;
+      height: 1.4rem;
+      background: var(--accent-light);
+      color: var(--accent-dark);
+      border-radius: 50%;
+      text-align: center;
+      line-height: 1.4rem;
+      font-size: 0.7rem;
+      font-weight: 700;
+      margin-right: 0.5rem;
+    }
+
+    .quickstart {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 1.5rem 1.75rem;
+      overflow-x: auto;
+    }
+
+    .quickstart pre {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.82rem;
+      line-height: 1.7;
+      color: var(--text);
+    }
+
+    .quickstart .comment { color: var(--text-muted); }
+
+    footer {
+      text-align: center;
+      padding: 2rem 1.5rem;
+      color: var(--text-muted);
+      font-size: 0.875rem;
+      border-top: 1px solid var(--border);
+    }
+
+    footer a {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 500;
+    }
+
+    footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+
+  <header class="hero">
+    <div class="hero-inner">
+      <span class="badge">WhatsApp + n8n + Groq</span>
+      <h1>FarmaBot</h1>
+      <p>Atendente virtual de farmácia no WhatsApp — catálogo, carrinho, pagamento e transferência para humano, com respostas inteligentes via IA.</p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="README.md">Documentação</a>
+        <a class="btn btn-ghost" href="https://github.com/RafaelMastrangelli/FarmaBot" target="_blank" rel="noopener">Ver no GitHub</a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+
+    <div class="stack-card">
+      <h2>Stack</h2>
+      <div class="stack-grid">
+        <div class="stack-item"><strong>Plataforma</strong><span>n8n</span></div>
+        <div class="stack-item"><strong>Canal</strong><span>WhatsApp</span></div>
+        <div class="stack-item"><strong>API</strong><span>Z-API</span></div>
+        <div class="stack-item"><strong>IA</strong><span>Groq Llama 3.3</span></div>
+        <div class="stack-item"><strong>Scripts</strong><span>JavaScript</span></div>
+        <div class="stack-item"><strong>Sessões</strong><span>Static Data</span></div>
+      </div>
+    </div>
+
+    <section>
+      <h2>O que o bot faz</h2>
+      <p class="subtitle">Fluxo completo de atendimento automatizado para farmácia.</p>
+      <div class="features">
+        <div class="feature">Recebe mensagens via webhook Z-API</div>
+        <div class="feature">Gerencia sessões por telefone (FSM)</div>
+        <div class="feature">Catálogo com 6 categorias e 14 produtos</div>
+        <div class="feature">Carrinho, endereço e pagamento</div>
+        <div class="feature">Respostas dinâmicas com Groq</div>
+        <div class="feature">Transferência para atendente humano</div>
+        <div class="feature">Métricas enviadas ao dashboard</div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Documentação</h2>
+      <p class="subtitle">Guias técnicos do projeto.</p>
+      <div class="card-grid">
+        <a class="card" href="README.md">
+          <h3>Visão geral</h3>
+          <p>Stack, configuração rápida e índice completo da documentação.</p>
+          <span class="arrow">Abrir →</span>
+        </a>
+        <a class="card" href="arquitetura.md">
+          <h3>Arquitetura</h3>
+          <p>Componentes, fluxo de dados e subsistemas (IA, métricas, alertas).</p>
+          <span class="arrow">Abrir →</span>
+        </a>
+        <a class="card" href="fluxo-workflow.md">
+          <h3>Fluxo do Workflow</h3>
+          <p>Detalhamento de cada node do workflow n8n.</p>
+          <span class="arrow">Abrir →</span>
+        </a>
+        <a class="card" href="maquina-de-estados.md">
+          <h3>Máquina de Estados</h3>
+          <p>Estados da sessão, transições e comandos do usuário.</p>
+          <span class="arrow">Abrir →</span>
+        </a>
+        <a class="card" href="catalogo-produtos.md">
+          <h3>Catálogo de Produtos</h3>
+          <p>Estrutura do catálogo, categorias e produtos.</p>
+          <span class="arrow">Abrir →</span>
+        </a>
+        <a class="card" href="integracoes.md">
+          <h3>Integrações</h3>
+          <p>Z-API, Groq e WebApp de métricas.</p>
+          <span class="arrow">Abrir →</span>
+        </a>
+        <a class="card" href="sessoes-e-dados.md">
+          <h3>Sessões e Dados</h3>
+          <p>Gerenciamento de sessões, métricas e persistência.</p>
+          <span class="arrow">Abrir →</span>
+        </a>
+        <a class="card" href="deploy.md">
+          <h3>Deploy</h3>
+          <p>Importar workflow, credenciais e ativação em produção.</p>
+          <span class="arrow">Abrir →</span>
+        </a>
+        <a class="card" href="convencoes.md">
+          <h3>Convenções</h3>
+          <p>Padrões de código, nomenclatura e boas práticas.</p>
+          <span class="arrow">Abrir →</span>
+        </a>
+      </div>
+    </section>
+
+    <section>
+      <h2>Agentes &amp; Skills</h2>
+      <p class="subtitle">Prompts e guias para desenvolvimento com IA.</p>
+      <div class="card-grid">
+        <a class="card" href="https://github.com/RafaelMastrangelli/FarmaBot/blob/main/agents/README.md" target="_blank" rel="noopener">
+          <h3>Agentes de IA</h3>
+          <p>8 agentes especializados: Workflow Architect, Bot Developer, Prompt Engineer e mais.</p>
+          <span class="arrow">Ver no GitHub →</span>
+        </a>
+        <a class="card" href="https://github.com/RafaelMastrangelli/FarmaBot/blob/main/skills/README.md" target="_blank" rel="noopener">
+          <h3>Skills</h3>
+          <p>8 skills com templates, checklists e regras para manutenção do bot.</p>
+          <span class="arrow">Ver no GitHub →</span>
+        </a>
+      </div>
+    </section>
+
+    <section>
+      <h2>Configuração rápida</h2>
+      <p class="subtitle">Para rodar localmente no Windows.</p>
+      <div class="quickstart">
+        <pre><span class="comment"># Clone o repositório e configure as credenciais</span>
+Copy-Item .env.example .env
+<span class="comment"># Edite .env com ZAPI_*, GROQ_API_KEY, etc.</span>
+.\start.ps1</pre>
+      </div>
+    </section>
+
+  </main>
+
+  <footer>
+    <p>
+      <a href="https://github.com/RafaelMastrangelli/FarmaBot" target="_blank" rel="noopener">FarmaBot</a>
+      — bot de atendimento para farmácia via WhatsApp
+    </p>
+  </footer>
+
+</body>
+</html>
