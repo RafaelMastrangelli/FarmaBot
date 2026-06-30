@@ -145,13 +145,9 @@ O node `Envia ao WebApp` envia metricas para o dashboard apos cada interacao.
 2. Configurar `DASHBOARD_API_KEY` identica nos dois lados (n8n e WebApp)
 3. Garantir que o n8n consiga acessar o endpoint via rede interna ou HTTPS
 
-### Submodule
+### Codigo do dashboard
 
-O codigo do dashboard esta em `WebApp/Metric-Dashboard-Farmacia` (git submodule). Inicialize com:
-
-```powershell
-git submodule update --init
-```
+O codigo do dashboard esta em `WebApp/Metric-Dashboard-Farmacia`, no mesmo repositorio do FarmaBot.
 
 ---
 

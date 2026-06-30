@@ -38,9 +38,11 @@ desktop.ini
 docker-data/
 *.pid
 
-# Backup do dashboard (contem .git interno — usar submodule)
+# Backup local do dashboard
 WebApp/Metric-Dashboard-Farmacia.zip
+
+# Estado local Replit
+WebApp/Metric-Dashboard-Farmacia/.local/
 
 # Arquivos compactados locais
 *.zip
-!WebApp/.gitkeep

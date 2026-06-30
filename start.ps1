@@ -32,7 +32,7 @@ if (-not (Test-Path $EnvFile)) {
 # 1. Dashboard + Postgres
 Write-Step "Dashboard + PostgreSQL (docker compose)"
 if (-not (Test-Path $DashboardDir)) {
-    throw "Pasta nao encontrada: $DashboardDir. Inicialize o submodule: git submodule update --init"
+    throw "Pasta nao encontrada: $DashboardDir"
 }
 Push-Location $DashboardDir
 docker compose up -d

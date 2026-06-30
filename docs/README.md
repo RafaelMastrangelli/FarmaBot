@@ -12,7 +12,7 @@
 | IA | Groq — modelo `llama-3.3-70b-versatile` |
 | Linguagem dos scripts | JavaScript (Code nodes n8n) |
 | Armazenamento | n8n Static Data (in-memory) |
-| Dashboard | WebApp local (Express + PostgreSQL) via submodule |
+| Dashboard | WebApp local (Express + PostgreSQL) em `WebApp/Metric-Dashboard-Farmacia` |
 | Credenciais | Variaveis de ambiente (`.env`) — ver `.env.example` |
 
 ## Indice da Documentacao
